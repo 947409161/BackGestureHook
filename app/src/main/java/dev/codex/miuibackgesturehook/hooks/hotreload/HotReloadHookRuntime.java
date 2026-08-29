@@ -401,6 +401,9 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
             }
         }
         if (SYSTEM_UI.equals(processName) && hotReloadClassLoader != null) {
+            if (isFlymeDevice()) {
+                restoreFlymeSystemUiHotReloadHooks(hotReloadClassLoader, oldHookIds);
+            } else {
             try {
                 // Platform adapters own version-specific field, signature and native-panel
                 // access. They are deliberately destroyed before the old runtime is replaced,
@@ -412,9 +415,6 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                         "Failed to restore SystemUI platform implementation after hot reload",
                         throwable);
             }
-            if (isFlymeDevice()) {
-                restoreFlymeSystemUiHotReloadHooks(hotReloadClassLoader, oldHookIds);
-            } else {
             boolean missingContextualSearchAttach = !oldHookIds.contains(
                     "systemui_contextual_search_nav_attach");
             boolean missingContextualSearchDetach = !oldHookIds.contains(
@@ -1297,9 +1297,6 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
 
     protected void restoreFlymeSystemUiHotReloadHooks(ClassLoader classLoader,
                                                       Set<String> oldHookIds) {
-        if (!oldHookIds.contains("systemui_navigation_bar_gesture_insets")) {
-            hookNavigationBarGestureInsets(classLoader);
-        }
         Class<?> controllerClass = null;
         if (!oldHookIds.contains("shell_back_onBackAnimationFinished")
                 || !oldHookIds.contains("shell_back_finishBackAnimation")
