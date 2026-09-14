@@ -236,6 +236,29 @@
         "long_press_handler_offset": "0x71d75c",
         "invoke_offset": "0xadff10"
       }
+    },
+    {
+      "id": "7653",
+      "_comment": "Offline regression reference only: verify-runtime-profile.py compares dynamic resolution against these expected offsets. generate-launcher-profiles.py reads only profiles, so this entry is not compiled into the APK. Runtime resolution does not select these offsets by version.",
+      "version_code": 801027653,
+      "version_name": "RELEASE-8.01.02.7653-260904-09092213-R",
+      "library_sha256": "dc87213ab06b855d2e118405c65d47d4f428d51ae067260924705c3893031354",
+      "entry_offset": "0x9b47d0",
+      "hook_topology": "side_boundary_only",
+      "side_handler": {
+        "offset": "0x6fd01c",
+        "edge_field_offset": "0xfc"
+      },
+      "contextual_search": {
+        "long_press_handler_offset": "0x6681b0",
+        "invoke_offset": "0x8f6630"
+      },
+      "abi": {
+        "rstring_vtable_offset": "0xeb46b8",
+        "runtime_pointer_offset": "0xf1e7d8",
+        "runtime_state_offset": "0xf1e7e0",
+        "runtime_ready_value": 0
+      }
     }
   ]
 }

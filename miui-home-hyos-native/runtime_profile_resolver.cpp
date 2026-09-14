@@ -1071,6 +1071,37 @@ bool ResolveModernRuntime(const ElfView& view, const RequiredImports& imports,
                     offset < 8u) {
                 continue;
             }
+            // Newer callers borrow the global Runtime directly. Require the
+            // same acquire-loaded state and pointer independently proven by
+            // the unique strong-reference helper above; a nearby singleton
+            // or an unguarded pointer load is not a confirmation.
+            uintptr_t borrowed_state = 0u;
+            uintptr_t borrowed_page = 0u;
+            uintptr_t borrowed_immediate = 0u;
+            uint32_t borrowed_branch = 0u;
+            uint32_t borrowed_load = 0u;
+            uint32_t borrowed_adrp = 0u;
+            if (offset >= 0x18u &&
+                    DecodeAddressPair(view, offset - 0x18u, 8u,
+                                      &borrowed_state) &&
+                    borrowed_state == matched_state &&
+                    InstructionEquals(view, offset - 0x10u, 0x88dffd08u) &&
+                    ReadInstruction(view, offset - 0x0cu, &borrowed_branch) &&
+                    (borrowed_branch & 0xff00001fu) == 0x35000008u &&
+                    // The non-ready branch must skip the entire borrowed use.
+                    ((borrowed_branch >> 5u) & 0x7ffffu) > 3u &&
+                    ((borrowed_branch >> 5u) & 0x7ffffu) < 0x40000u &&
+                    ReadInstruction(view, offset - 8u, &borrowed_adrp) &&
+                    DecodeAdrp(borrowed_adrp, offset - 8u, 8u,
+                               &borrowed_page) &&
+                    ReadInstruction(view, offset - 4u, &borrowed_load) &&
+                    DecodeLdr64Immediate(borrowed_load, 0u, 8u,
+                                         &borrowed_immediate) &&
+                    !AddOverflows(borrowed_page, borrowed_immediate) &&
+                    borrowed_page + borrowed_immediate == matched_pointer) {
+                ++confirmations;
+                continue;
+            }
             uintptr_t called_helper = 0u;
             uint32_t saved_register = 0u;
             uint32_t instruction = 0u;

@@ -321,6 +321,21 @@ def resolve_runtime(image: LoadedElf) -> tuple[int, int, int]:
 
     modern_confirmations = 0
     for offset in image.executable_offsets(0x10):
+        if call_targets(image, offset, "Runtime_get_application_thread_binder") and offset >= 0x18:
+            borrowed_page = decode_adrp(image.u32(offset - 8), offset - 8, 8)
+            borrowed_immediate = decode_ldr(image.u32(offset - 4), 0, 8)
+            branch = image.u32(offset - 0x0C)
+            if (
+                decode_address_pair(image, offset - 0x18, 8) == state
+                and image.u32(offset - 0x10) == 0x88DFFD08
+                and branch & 0xFF00001F == 0x35000008
+                and 3 < (branch >> 5) & 0x7FFFF < 0x40000
+                and borrowed_page is not None
+                and borrowed_immediate is not None
+                and borrowed_page + borrowed_immediate == pointer
+            ):
+                modern_confirmations += 1
+                continue
         if (
             not call_targets(image, offset, "Runtime_get_application_thread_binder")
             or offset < 8
