@@ -190,8 +190,18 @@ Google App optional-feature rules:
   backfilling missing gates, and defer reload while the dex resolver owns an active bridge.
 - For the Lensient contextual searchbox, require the unique one-argument boolean screen-thumbnail
   retention method carrying the exact `vidcip` marker. Ambiguous, missing, or unreadable matches
-  fail closed. Override only its successful false result; do not replace text,
+  preserve the original behavior. Override only its successful false result.
+  Resolve the Ask Screen eligibility and native hint model through DexKit semantic markers,
+  field ownership and call relationships shared with that thumbnail owner. Do not depend on a
+  Google version number, obfuscated member name, constructor parameter count or argument index.
+  A successful false eligibility result may be enabled only when Google's original entrypoint
+  check identifies OMNI and the feature preferences are enabled; let Google's model and hint
+  callback select its own text. Preserve other entrypoints and the native screenshot, context,
+  upload and submission flows. Never globally enable Labs or change Phenotype records,
   forge a thumbnail, spoof Build identity, bypass consent, or manufacture a capture/token path.
+  Keep Live Translate and Ask Screen in independent components owned by a Google lifecycle
+  coordinator, outside the SystemServer/MiuiHome runtime inheritance chain. Retired diagnostic
+  handles must be neutralized during hot reload.
 
 Predictive opt-in rules:
 

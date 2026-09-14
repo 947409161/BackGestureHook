@@ -8,16 +8,35 @@ import android.os.Looper;
 import android.os.SystemClock;
 import android.util.Log;
 
+import java.lang.reflect.Executable;
+import android.content.SharedPreferences;
+import static dev.codex.miuibackgesturehook.hooks.googleapp.GoogleAppRuntime.GOOGLE_APP;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 
 import dev.codex.miuibackgesturehook.hooks.systemserver.SystemServerHookRuntime;
+import dev.codex.miuibackgesturehook.hooks.googleapp.GoogleAppRuntime;
 import io.github.libxposed.api.XposedInterface;
 import io.github.libxposed.api.XposedModuleInterface;
 
 public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
+
+    private final GoogleAppRuntime googleApp = new GoogleAppRuntime(new GoogleAppRuntime.Host() {
+        @Override public void install(Executable executable, String id, XposedInterface.Hooker hooker) {
+            recordHookHandle(hook(executable).setId(id).intercept(hooker));
+        }
+        @Override public boolean deoptimize(Executable executable) {
+            return HotReloadHookRuntime.this.deoptimize(executable);
+        }
+        @Override public SharedPreferences preferences(String group) { return getRemotePreferences(group); }
+        @Override public void ensureDexKit() { ensureDexKitLibraryLoaded(); }
+        @Override public void log(int priority, String message, Throwable failure) {
+            if (failure == null) moduleLog(priority, TAG, message);
+            else moduleLog(priority, TAG, message, failure);
+        }
+    });
 
     @Override
     public boolean onHotReloading(XposedModuleInterface.HotReloadingParam param) {
@@ -30,7 +49,7 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                             + ", process=" + processName);
             return true;
         }
-        if (googleDexResolutionInFlight.get() != 0) {
+        if (googleApp.isResolvingDex()) {
             moduleLog(Log.WARN, TAG,
                     "Deferred hot reload during Google dex resolution"
                             + ", process=" + processName);
@@ -763,8 +782,8 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
         if ((GOOGLE_APP.equals(processName)
                 || processName.startsWith(GOOGLE_APP + ":"))
                 && hotReloadClassLoader != null) {
-            installGoogleAppHooks(
-                    hotReloadClassLoader, resolveGoogleAppSourceDir(), oldHookIds);
+            googleApp.install(
+                    hotReloadClassLoader, googleApp.resolveSourceDir(), oldHookIds);
         }
         moduleLog(Log.INFO, TAG, "Hot reloaded, build=" + BUILD_MARK
                 + ", process=" + processName
@@ -776,6 +795,8 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
         if (hookId == null) {
             return null;
         }
+        XposedInterface.Hooker googleHooker = googleApp.replacement(hookId);
+        if (googleHooker != null) return googleHooker;
         switch (hookId) {
             case "systemui_block_miui_gesture_line_progress":
                 return this::interceptMiuiOverviewProxyTransact;
@@ -893,14 +914,6 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                 return this::scopeContextualSearchPermission;
             case "server_contextual_search_provider":
                 return this::scopeContextualSearchProvider;
-            case "google_live_translate_system_feature":
-                return this::overrideLiveTranslateSystemFeature;
-            case "google_live_translate_action_visibility":
-                return this::preserveLiveTranslateActionVisibility;
-            case "google_live_translate_capability":
-                return this::overrideLiveTranslateBooleanGate;
-            case "google_lens_aim_screen_capability":
-                return this::overrideGoogleLensScreenCapability;
             case "systemui_default_transition_start":
                 return this::registerDefaultTransitionHandler;
             case "systemui_a17_default_transition_dispatch_start":
@@ -1144,7 +1157,7 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
         } else if (MIUI_HOME.equals(loadedPackage)) {
             installMiuiHomeHooks(param.getDefaultClassLoader());
         } else if (GOOGLE_APP.equals(loadedPackage)) {
-            installGoogleAppHooks(
+            googleApp.install(
                     param.getDefaultClassLoader(),
                     param.getApplicationInfo().sourceDir,
                     Collections.emptySet());

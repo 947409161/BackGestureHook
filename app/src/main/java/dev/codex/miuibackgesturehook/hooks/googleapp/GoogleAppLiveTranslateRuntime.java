@@ -1,293 +1,51 @@
 package dev.codex.miuibackgesturehook.hooks.googleapp;
 
 import android.content.SharedPreferences;
-import android.content.Context;
 import android.util.Log;
-
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicInteger;
-
 import dev.codex.miuibackgesturehook.PredictiveBackPreferences;
-import dev.codex.miuibackgesturehook.hooks.miuihome.MiuiHomeHookRuntime;
 import io.github.libxposed.api.XposedInterface;
-
 import org.luckypray.dexkit.DexKitBridge;
 import org.luckypray.dexkit.query.FindMethod;
 import org.luckypray.dexkit.query.matchers.MethodMatcher;
 import org.luckypray.dexkit.result.MethodData;
 import org.luckypray.dexkit.result.MethodDataList;
 
-/** Optional Google App compatibility features, all gated by remote preferences. */
-public abstract class GoogleAppLiveTranslateRuntime extends MiuiHomeHookRuntime {
-    protected static final String GOOGLE_APP =
-            "com.google.android.googlequicksearchbox";
-
+/** Google-owned Live Translate action and its feature-specific preferences. */
+final class GoogleAppLiveTranslateRuntime {
     private static final String LIVE_TRANSLATE_SYSTEM_FEATURE =
             "com.google.android.feature.CONTEXTUAL_SEARCH_LIVE_TRANSLATE";
     private static final int LIVE_TRANSLATE_ACTION_ID = 271520;
-    private static final String GOOGLE_LENS_USER_NAMESPACE =
-            "com.google.android.apps.search.lens.user";
-    private static final String GOOGLE_LENS_AIM_SEARCHBOX_FLAG = "45781832";
-    private static final String GOOGLE_LENS_AIM_SCREEN_CONTEXT_FLAG = "45765529";
-
+    private final GoogleAppRuntime.Host host;
     private volatile SharedPreferences liveTranslatePreferences;
     private volatile boolean liveTranslatePreferenceFailureLogged;
-    private volatile boolean lensAimPreferenceFailureLogged;
-    private volatile boolean lensAimScreenCapabilityLogged;
-    protected final AtomicInteger googleDexResolutionInFlight =
-            new AtomicInteger();
-    protected volatile String googleAppSourceDir;
 
-    protected String resolveGoogleAppSourceDir() {
-        String cached = googleAppSourceDir;
-        if (cached != null && !cached.isEmpty()) {
-            return cached;
-        }
-        try {
-            Class<?> activityThread = Class.forName("android.app.ActivityThread");
-            Method currentApplication = activityThread.getDeclaredMethod(
-                    "currentApplication");
-            Object application = currentApplication.invoke(null);
-            if (application instanceof Context) {
-                cached = ((Context) application).getApplicationInfo().sourceDir;
-                googleAppSourceDir = cached;
-            }
-        } catch (Throwable throwable) {
-            moduleLog(Log.WARN, TAG,
-                    "Could not recover Google App source path after hot reload", throwable);
-        }
-        return cached;
+    GoogleAppLiveTranslateRuntime(GoogleAppRuntime.Host host) { this.host = host; }
+
+    boolean needsResolution(Set<String> ids) {
+        return !ids.contains("google_live_translate_action_visibility")
+                || !ids.contains("google_live_translate_capability");
     }
 
-    protected void installGoogleAppHooks(
-            ClassLoader classLoader, String sourceDir, Set<String> existingHookIds) {
-        googleAppSourceDir = sourceDir;
-        installLiveTranslateSystemFeatureHook(classLoader, existingHookIds);
-
-        boolean resolveLiveTranslate =
-                !existingHookIds.contains("google_live_translate_action_visibility")
-                        || !existingHookIds.contains("google_live_translate_capability");
-        boolean resolveLensCapability =
-                !existingHookIds.contains("google_lens_aim_screen_capability");
-        if (!resolveLiveTranslate && !resolveLensCapability) {
-            return;
-        }
-        if (sourceDir == null || sourceDir.isEmpty()) {
-            moduleLog(Log.WARN, TAG,
-                    "Google App source path unavailable; optional Google hooks remain stock");
-            return;
-        }
-
-        googleDexResolutionInFlight.incrementAndGet();
-        try {
-            ensureDexKitLibraryLoaded();
-            try (DexKitBridge bridge = DexKitBridge.create(sourceDir)) {
-                if (resolveLiveTranslate) {
-                    try {
-                        installGoogleAppLiveTranslateDexHooks(
-                                classLoader, existingHookIds, bridge);
-                    } catch (Throwable throwable) {
-                        moduleLog(Log.ERROR, TAG,
-                                "Failed to install Google live-translate compatibility",
-                                throwable);
-                    }
-                }
-                if (resolveLensCapability) {
-                    try {
-                        installGoogleLensAimScreenCapabilityHook(
-                                classLoader, existingHookIds, bridge);
-                    } catch (Throwable throwable) {
-                        moduleLog(Log.ERROR, TAG,
-                                "Failed to install native Google Lens screen capability",
-                                throwable);
-                    }
-                }
-            }
-        } catch (Throwable throwable) {
-            moduleLog(Log.ERROR, TAG,
-                    "Failed to resolve optional Google App hooks", throwable);
-        } finally {
-            googleDexResolutionInFlight.decrementAndGet();
+    XposedInterface.Hooker replacement(String id) {
+        switch (id) {
+            case "google_live_translate_system_feature": return this::overrideLiveTranslateSystemFeature;
+            case "google_live_translate_action_visibility": return this::preserveLiveTranslateActionVisibility;
+            case "google_live_translate_capability": return this::overrideLiveTranslateBooleanGate;
+            default: return null;
         }
     }
 
-    private void installGoogleLensAimScreenCapabilityHook(
-            ClassLoader classLoader,
-            Set<String> existingHookIds,
-            DexKitBridge bridge) throws Throwable {
-        GoogleLensScreenCapabilityTarget target =
-                resolveGoogleLensScreenCapabilityTarget(classLoader, bridge);
-        if (target == null) {
-            moduleLog(Log.WARN, TAG,
-                    "Could not uniquely resolve the native Google Lens screen capability");
-            return;
-        }
-        int deoptimized = deoptimize(target.coordinatorConstructor) ? 1 : 0;
-        for (Method caller : target.callers) {
-            if (deoptimize(caller)) {
-                deoptimized++;
-            }
-        }
-        if (!existingHookIds.contains("google_lens_aim_screen_capability")) {
-            recordHookHandle(hook(target.capability)
-                    .setId("google_lens_aim_screen_capability")
-                    .intercept(this::overrideGoogleLensScreenCapability));
-        }
-        moduleLog(deoptimized == target.callers.size() + 1
-                        ? Log.INFO : Log.WARN,
-                TAG, "Prepared native Google Lens screen capability"
-                        + ", executable=" + target.capability
-                        + ", callersDeoptimized=" + deoptimized
-                        + "/" + (target.callers.size() + 1));
-    }
-
-    private GoogleLensScreenCapabilityTarget resolveGoogleLensScreenCapabilityTarget(
-            ClassLoader classLoader, DexKitBridge bridge) throws Throwable {
-            MethodData consumer = findUniqueLensAimModelConsumer(bridge);
-            if (consumer == null) {
-                return null;
-            }
-            MethodData modelConstructor = findConstructedReturnType(consumer);
-            if (modelConstructor == null
-                    || modelConstructor.getParamTypeNames().size() <= 6) {
-                return null;
-            }
-
-            String coordinatorName = modelConstructor.getParamTypeNames().get(6);
-            Class<?> coordinatorClass = Class.forName(
-                    coordinatorName, false, classLoader);
-            FindMethod constructorQuery = FindMethod.create().matcher(
-                    MethodMatcher.create()
-                            .declaredClass(coordinatorClass)
-                            .name("<init>"));
-            MethodData coordinatorConstructorData = null;
-            MethodData capabilityData = null;
-            for (MethodData candidate : bridge.findMethod(constructorQuery)) {
-                MethodData constructorCapability = null;
-                for (MethodData invoke : candidate.getInvokes()) {
-                    if (!invoke.isMethod()
-                            || invoke.getParamCount() != 0
-                            || !"boolean".equals(invoke.getReturnTypeName())
-                            || coordinatorName.equals(invoke.getDeclaredClassName())) {
-                        continue;
-                    }
-                    if (constructorCapability != null
-                            && !constructorCapability.equals(invoke)) {
-                        constructorCapability = null;
-                        break;
-                    }
-                    constructorCapability = invoke;
-                }
-                if (constructorCapability == null) {
-                    continue;
-                }
-                if (coordinatorConstructorData != null
-                        && (!coordinatorConstructorData.equals(candidate)
-                        || !capabilityData.equals(constructorCapability))) {
-                    return null;
-                }
-                coordinatorConstructorData = candidate;
-                capabilityData = constructorCapability;
-            }
-            if (coordinatorConstructorData == null || capabilityData == null) {
-                return null;
-            }
-
-            List<Method> callers = new ArrayList<>();
-            for (MethodData caller : capabilityData.getCallers()) {
-                if (!caller.isMethod()) {
-                    continue;
-                }
-                Method method = caller.getMethodInstance(classLoader);
-                if (!callers.contains(method)) {
-                    callers.add(method);
-                }
-            }
-            return new GoogleLensScreenCapabilityTarget(
-                    capabilityData.getMethodInstance(classLoader),
-                    coordinatorConstructorData.getConstructorInstance(classLoader),
-                    callers);
-    }
-
-    private static MethodData findUniqueLensAimModelConsumer(DexKitBridge bridge) {
-        FindMethod query = FindMethod.create().matcher(
-                MethodMatcher.create()
-                        .paramCount(0)
-                        .usingEqStrings(
-                                GOOGLE_LENS_USER_NAMESPACE,
-                                GOOGLE_LENS_AIM_SEARCHBOX_FLAG,
-                                GOOGLE_LENS_AIM_SCREEN_CONTEXT_FLAG));
-        MethodData resolved = null;
-        for (MethodData candidate : bridge.findMethod(query)) {
-            if ("void".equals(candidate.getReturnTypeName())) {
-                continue;
-            }
-            if (resolved != null && !resolved.equals(candidate)) {
-                return null;
-            }
-            resolved = candidate;
-        }
-        return resolved;
-    }
-
-    private static MethodData findConstructedReturnType(MethodData consumer) {
-        MethodData resolved = null;
-        for (MethodData invoke : consumer.getInvokes()) {
-            if (!invoke.isConstructor()
-                    || !consumer.getReturnTypeName().equals(
-                            invoke.getDeclaredClassName())) {
-                continue;
-            }
-            if (resolved != null && !resolved.equals(invoke)) {
-                return null;
-            }
-            resolved = invoke;
-        }
-        return resolved;
-    }
-
-    protected Object overrideGoogleLensScreenCapability(
-            XposedInterface.Chain chain) throws Throwable {
-        Object result = chain.proceed();
-        if (isGoogleLensContextualSearchboxEnabled()) {
-            if (!lensAimScreenCapabilityLogged) {
-                lensAimScreenCapabilityLogged = true;
-                moduleLog(Log.INFO, TAG,
-                        "Enabled native Google Lens screen capability before AIM model creation"
-                                + ", gate=" + chain.getExecutable()
-                                + ", original=" + result);
-            }
-            return Boolean.TRUE;
-        }
-        return result;
-    }
-
-    private static final class GoogleLensScreenCapabilityTarget {
-        final Method capability;
-        final Constructor<?> coordinatorConstructor;
-        final List<Method> callers;
-
-        GoogleLensScreenCapabilityTarget(
-                Method capability,
-                Constructor<?> coordinatorConstructor,
-                List<Method> callers) {
-            this.capability = capability;
-            this.coordinatorConstructor = coordinatorConstructor;
-            this.callers = callers;
-        }
-    }
-
-    private void installGoogleAppLiveTranslateDexHooks(
+    void installDexHooks(
             ClassLoader classLoader,
             Set<String> existingHookIds,
             DexKitBridge bridge) throws Throwable {
         Class<?> actionClass = resolveLiveTranslateActionClass(classLoader, bridge);
         if (actionClass == null) {
-            moduleLog(Log.WARN, TAG,
+            host.log(Log.WARN,
                     "Could not uniquely resolve the Android 16 live-translate action");
             return;
         }
@@ -299,7 +57,7 @@ public abstract class GoogleAppLiveTranslateRuntime extends MiuiHomeHookRuntime 
         }
     }
 
-    private void installLiveTranslateSystemFeatureHook(
+    void installSystemFeatureHook(
             ClassLoader classLoader, Set<String> existingHookIds) {
         if (existingHookIds.contains("google_live_translate_system_feature")) {
             return;
@@ -309,11 +67,9 @@ public abstract class GoogleAppLiveTranslateRuntime extends MiuiHomeHookRuntime 
                     "android.app.ApplicationPackageManager", false, classLoader);
             Method method = packageManagerClass.getDeclaredMethod(
                     "hasSystemFeature", String.class);
-            recordHookHandle(hook(method)
-                    .setId("google_live_translate_system_feature")
-                    .intercept(this::overrideLiveTranslateSystemFeature));
+            host.install(method, "google_live_translate_system_feature", this::overrideLiveTranslateSystemFeature);
         } catch (Throwable throwable) {
-            moduleLog(Log.WARN, TAG,
+            host.log(Log.WARN,
                     "Live-translate system-feature gate unavailable", throwable);
         }
     }
@@ -338,7 +94,7 @@ public abstract class GoogleAppLiveTranslateRuntime extends MiuiHomeHookRuntime 
                     continue;
                 }
                 if (resolved != null && resolved != candidate) {
-                    moduleLog(Log.WARN, TAG,
+                    host.log(Log.WARN,
                             "Ambiguous live-translate action classes: "
                                     + resolved.getName() + " and " + candidate.getName());
                     return null;
@@ -353,14 +109,9 @@ public abstract class GoogleAppLiveTranslateRuntime extends MiuiHomeHookRuntime 
         if (visibility == null) {
             throw new NoSuchMethodException(actionClass.getName() + ".i():boolean");
         }
-        boolean deoptimized = deoptimize(visibility);
-        recordHookHandle(hook(visibility)
-                .setId("google_live_translate_action_visibility")
-                // The native action list owns first-screen visibility.  Live Translate is
-                // only added after the user taps the native Translate affordance; forcing
-                // this gate makes a dead button appear on the initial Circle-to-Search page.
-                .intercept(this::preserveLiveTranslateActionVisibility));
-        moduleLog(deoptimized ? Log.INFO : Log.WARN, TAG,
+        boolean deoptimized = host.deoptimize(visibility);
+        host.install(visibility, "google_live_translate_action_visibility", this::preserveLiveTranslateActionVisibility);
+        host.log(deoptimized ? Log.INFO : Log.WARN,
                 "Prepared live-translate action visibility"
                         + ", owner=" + actionClass.getName()
                         + ", deoptimized=" + deoptimized);
@@ -372,11 +123,9 @@ public abstract class GoogleAppLiveTranslateRuntime extends MiuiHomeHookRuntime 
             throw new NoSuchMethodException(
                     actionClass.getName() + " live-translate capability");
         }
-        boolean deoptimized = deoptimize(capability);
-        recordHookHandle(hook(capability)
-                .setId("google_live_translate_capability")
-                .intercept(this::overrideLiveTranslateBooleanGate));
-        moduleLog(deoptimized ? Log.INFO : Log.WARN, TAG,
+        boolean deoptimized = host.deoptimize(capability);
+        host.install(capability, "google_live_translate_capability", this::overrideLiveTranslateBooleanGate);
+        host.log(deoptimized ? Log.INFO : Log.WARN,
                 "Prepared live-translate capability gate"
                         + ", executable=" + capability
                         + ", deoptimized=" + deoptimized);
@@ -414,7 +163,7 @@ public abstract class GoogleAppLiveTranslateRuntime extends MiuiHomeHookRuntime 
         }
     }
 
-    protected Object overrideLiveTranslateSystemFeature(
+    private Object overrideLiveTranslateSystemFeature(
             XposedInterface.Chain chain) throws Throwable {
         Object result = chain.proceed();
         List<Object> args = chain.getArgs();
@@ -426,7 +175,7 @@ public abstract class GoogleAppLiveTranslateRuntime extends MiuiHomeHookRuntime 
         return result;
     }
 
-    protected Object overrideLiveTranslateBooleanGate(
+    private Object overrideLiveTranslateBooleanGate(
             XposedInterface.Chain chain) throws Throwable {
         Object result = chain.proceed();
         return isContextualSearchLiveTranslateEnabled() ? Boolean.TRUE : result;
@@ -437,19 +186,19 @@ public abstract class GoogleAppLiveTranslateRuntime extends MiuiHomeHookRuntime 
      * deliberately separate: it makes the feature usable once the native flow requests it,
      * but it must not manufacture a Translate item on the initial results page.
      */
-    protected Object preserveLiveTranslateActionVisibility(
+    private Object preserveLiveTranslateActionVisibility(
             XposedInterface.Chain chain) throws Throwable {
         return chain.proceed();
     }
 
-    protected boolean isContextualSearchLiveTranslateEnabled() {
+    private boolean isContextualSearchLiveTranslateEnabled() {
         try {
             SharedPreferences preferences = liveTranslatePreferences;
             if (preferences == null) {
                 synchronized (this) {
                     preferences = liveTranslatePreferences;
                     if (preferences == null) {
-                        preferences = getRemotePreferences(
+                        preferences = host.preferences(
                                 PredictiveBackPreferences.GROUP);
                         liveTranslatePreferences = preferences;
                     }
@@ -466,40 +215,8 @@ public abstract class GoogleAppLiveTranslateRuntime extends MiuiHomeHookRuntime 
         } catch (Throwable throwable) {
             if (!liveTranslatePreferenceFailureLogged) {
                 liveTranslatePreferenceFailureLogged = true;
-                moduleLog(Log.ERROR, TAG,
+                host.log(Log.ERROR,
                         "Live-translate preference unavailable; preserving Google App behavior",
-                        throwable);
-            }
-            return false;
-        }
-    }
-
-    protected boolean isGoogleLensContextualSearchboxEnabled() {
-        try {
-            SharedPreferences preferences = liveTranslatePreferences;
-            if (preferences == null) {
-                synchronized (this) {
-                    preferences = liveTranslatePreferences;
-                    if (preferences == null) {
-                        preferences = getRemotePreferences(
-                                PredictiveBackPreferences.GROUP);
-                        liveTranslatePreferences = preferences;
-                    }
-                }
-            }
-            boolean enabled = preferences.getBoolean(
-                    PredictiveBackPreferences.KEY_GOOGLE_LENS_CONTEXTUAL_SEARCHBOX,
-                    PredictiveBackPreferences.DEFAULT_GOOGLE_LENS_CONTEXTUAL_SEARCHBOX);
-            boolean contextualSearchEnabled = preferences.getBoolean(
-                    PredictiveBackPreferences.KEY_CONTEXTUAL_SEARCH_LONG_PRESS,
-                    PredictiveBackPreferences.DEFAULT_CONTEXTUAL_SEARCH_LONG_PRESS);
-            lensAimPreferenceFailureLogged = false;
-            return enabled && contextualSearchEnabled;
-        } catch (Throwable throwable) {
-            if (!lensAimPreferenceFailureLogged) {
-                lensAimPreferenceFailureLogged = true;
-                moduleLog(Log.ERROR, TAG,
-                        "Lens AIM preference unavailable; preserving Google App behavior",
                         throwable);
             }
             return false;

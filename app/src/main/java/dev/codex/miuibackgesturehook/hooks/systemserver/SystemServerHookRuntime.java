@@ -1,7 +1,7 @@
 package dev.codex.miuibackgesturehook.hooks.systemserver;
 
 import dev.codex.miuibackgesturehook.PredictiveBackPreferences;
-import dev.codex.miuibackgesturehook.hooks.googleapp.GoogleAppLiveTranslateRuntime;
+import dev.codex.miuibackgesturehook.hooks.miuihome.MiuiHomeHookRuntime;
 
 import android.content.Context;
 import android.content.SharedPreferences;
@@ -36,7 +36,7 @@ import org.json.JSONObject;
 
 import io.github.libxposed.api.XposedInterface;
 
-public abstract class SystemServerHookRuntime extends GoogleAppLiveTranslateRuntime {
+public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
 
     protected static final int SERVER_CHANGE_INFO_BACK_TOP = 128;
     protected static final int SERVER_CHANGE_INFO_BACK_BELOW = 256;
