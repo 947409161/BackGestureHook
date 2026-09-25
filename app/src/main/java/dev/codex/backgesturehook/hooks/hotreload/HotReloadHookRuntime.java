@@ -40,12 +40,13 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
 
     @Override
     public boolean onHotReloading(XposedModuleInterface.HotReloadingParam param) {
-        if (blockMiuiHomeXposedHooks() && isMiuiHomeProcess(processName)) {
-            // A protected Android 17 launcher process owns no module lifecycle state. Keep the
-            // reload path just as inert as cold package loading.
+        if ((blockMiuiHomeXposedHooks() || isFlymeDevice())
+                && isMiuiHomeProcess(processName)) {
+            // Android 17 and Flyme do not own MiuiHome LSPosed hooks. Keep reload state inert
+            // so neither saved launcher state nor old hook ownership is restored here.
             param.setSavedInstanceState(null);
             moduleLog(Log.WARN, TAG,
-                    "Android 17 MiuiHome LSPosed protection retained during hot reload"
+                    "MiuiHome LSPosed hooks disabled for this platform during hot reload"
                             + ", process=" + processName);
             return true;
         }
@@ -211,7 +212,7 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                 break;
             }
         }
-        if (blockMiuiHomeXposedHooks()
+        if ((blockMiuiHomeXposedHooks() || isFlymeDevice())
                 && (isMiuiHomeProcess(reportedProcessName) || hadMiuiHomeHook)) {
             processName = reportedProcessName;
             int unhooked = 0;
@@ -221,13 +222,13 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                     unhooked++;
                 } catch (Throwable throwable) {
                     moduleLog(Log.ERROR, TAG,
-                            "Failed to remove an old MiuiHome hook while enabling Android 17"
-                                    + " protection: " + oldHandle,
+                            "Failed to remove an old MiuiHome hook while disabling launcher"
+                                    + " hooks for this platform: " + oldHandle,
                             throwable);
                 }
             }
             moduleLog(Log.WARN, TAG,
-                    "Android 17 MiuiHome LSPosed protection active after hot reload"
+                    "MiuiHome LSPosed hooks disabled for this platform after hot reload"
                             + ", process=" + reportedProcessName
                             + ", oldHooksRemoved=" + unhooked);
             return;
@@ -1149,10 +1150,11 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
     @Override
     public void onPackageLoaded(XposedModuleInterface.PackageLoadedParam param) {
         String loadedPackage = param.getPackageName();
-        if (MIUI_HOME.equals(loadedPackage) && blockMiuiHomeXposedHooks()) {
+        if (MIUI_HOME.equals(loadedPackage)
+                && (blockMiuiHomeXposedHooks() || isFlymeDevice())) {
             processName = loadedPackage;
             moduleLog(Log.WARN, TAG,
-                    "Skipped every MiuiHome LSPosed hook on Android 17"
+                    "Skipped every MiuiHome LSPosed hook on this platform"
                             + ", sourceDir=" + param.getApplicationInfo().sourceDir);
             return;
         }
@@ -1176,9 +1178,9 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
     }
 
     protected void installMiuiHomeHooks(ClassLoader classLoader) {
-        if (blockMiuiHomeXposedHooks()) {
+        if (blockMiuiHomeXposedHooks() || isFlymeDevice()) {
             moduleLog(Log.WARN, TAG,
-                    "Rejected MiuiHome hook installation on Android 17");
+                    "Rejected MiuiHome hook installation on this platform");
             return;
         }
         try {
