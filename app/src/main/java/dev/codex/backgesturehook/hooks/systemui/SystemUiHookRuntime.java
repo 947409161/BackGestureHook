@@ -3990,6 +3990,55 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         return result;
     }
 
+    /**
+     * Proxies only the currently armed miuix slide animation's progress callback.
+     * All other BackProgressAnimator registrations continue through the platform path.
+     */
+    protected Object onCrossActivitySlideProgressRegistration(
+            XposedInterface.Chain chain) throws Throwable {
+        if (miuixSlideRegistrationReentry || !miuixSlideAnimActive) {
+            return chain.proceed();
+        }
+        WeakReference<Object> armedReference = miuixSlideArmedAnimation;
+        Object animation = armedReference == null ? null : armedReference.get();
+        if (animation == null) {
+            return chain.proceed();
+        }
+        Object progressAnimator;
+        try {
+            progressAnimator = readField(animation, "progressAnimator");
+        } catch (Throwable throwable) {
+            moduleLog(Log.WARN, TAG, "Failed to read progressAnimator", throwable);
+            return chain.proceed();
+        }
+        if (progressAnimator != chain.getThisObject()) {
+            return chain.proceed();
+        }
+        Object originalCallback = chain.getArg(1);
+        BackProgressAnimator.ProgressCallback replacement = event -> {
+            try {
+                onMiuixSlideFrame(animation, event);
+            } catch (Throwable throwable) {
+                miuixSlideAnimActive = false;
+                moduleLog(Log.WARN, TAG, "miuix slide frame failed"
+                        + ", fallingBackToNativeCallback=true", throwable);
+                if (originalCallback instanceof BackProgressAnimator.ProgressCallback) {
+                    ((BackProgressAnimator.ProgressCallback) originalCallback)
+                            .onProgressUpdate(event);
+                }
+            }
+        };
+        miuixSlideRegistrationReentry = true;
+        try {
+            ((BackProgressAnimator) chain.getThisObject()).onBackStarted(
+                    (BackMotionEvent) chain.getArg(0), replacement);
+        } finally {
+            miuixSlideRegistrationReentry = false;
+        }
+        moduleLog(Log.INFO, TAG, "miuix slide progress callback proxied");
+        return null;
+    }
+
     protected void cancelOneUiCrossTaskForHotReload() {
         OneUiCrossTaskSession session = oneUiCrossTaskSession.getAndSet(null);
         ValueAnimator animator = session == null ? null : session.settleAnimator;
