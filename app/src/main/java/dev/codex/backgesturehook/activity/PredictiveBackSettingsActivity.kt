@@ -61,6 +61,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.edit
 import dev.codex.backgesturehook.BuildConfig
 import dev.codex.backgesturehook.ModuleApplication
 import dev.codex.backgesturehook.PredictiveBackPreferences
