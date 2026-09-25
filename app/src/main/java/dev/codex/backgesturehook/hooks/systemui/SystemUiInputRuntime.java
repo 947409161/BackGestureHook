@@ -2,6 +2,7 @@ package dev.codex.backgesturehook.hooks.systemui;
 
 import dev.codex.backgesturehook.PredictiveBackPreferences;
 import dev.codex.backgesturehook.hooks.core.HookRuntimeCore;
+import io.github.libxposed.api.XposedInterface;
 
 import android.annotation.SuppressLint;
 import android.animation.Animator;
