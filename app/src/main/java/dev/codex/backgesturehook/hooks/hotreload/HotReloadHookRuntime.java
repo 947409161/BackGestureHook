@@ -284,9 +284,15 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                         // until an executable exposes the SystemUI classes.
                     }
                 }
+                if ("server_predictive_opt_in_metadata".equals(oldHookId)
+                        || "predictive_opt_in_system_server".equals(oldHookId)) {
+                    oldHandle.unhook();
+                    moduleLog(Log.INFO, TAG,
+                            "Retired obsolete predictive opt-in hook: " + oldHookId);
+                    continue;
+                }
                 if (isFlymeDevice() && oldServerHook
-                        && !"server_predictive_opt_in_metadata".equals(oldHookId)
-                        && !"predictive_opt_in_system_server".equals(oldHookId)) {
+                        && !"server_predictive_opt_in_launch_activity".equals(oldHookId)) {
                     oldHandle.unhook();
                     moduleLog(Log.INFO, TAG,
                             "Removed non-opt-in system_server hook on FlymeOS: "
@@ -370,8 +376,7 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
         if (shouldRestoreFlymePredictiveOptIn && replaced == 0) {
             installSystemServerHooks(preferredServerClassLoader);
         } else if (shouldRestoreFlymePredictiveOptIn
-                && !oldHookIds.contains("server_predictive_opt_in_metadata")
-                && !oldHookIds.contains("predictive_opt_in_system_server")) {
+                && !oldHookIds.contains("server_predictive_opt_in_launch_activity")) {
             ClassLoader serverClassLoader = findSystemServerClassLoader(
                     preferredServerClassLoader);
             if (serverClassLoader != null) {
@@ -419,8 +424,7 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                 if (!oldHookIds.contains("server_return_home_touch_occlusion")) {
                     hookReturnHomeTouchOcclusion(serverClassLoader);
                 }
-                if (!oldHookIds.contains("server_predictive_opt_in_metadata")
-                        && !oldHookIds.contains("predictive_opt_in_system_server")) {
+                if (!oldHookIds.contains("server_predictive_opt_in_launch_activity")) {
                     hookPredictiveBackOptInMetadata(serverClassLoader);
                 }
                 hookSecuritySidebarTransientBars(serverClassLoader, oldHookIds);
@@ -933,8 +937,7 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                 return this::cleanupSkippedRemoteAnimationOnNavigationDone;
             case "server_return_home_touch_occlusion":
                 return this::allowCommittedReturnHomeTouchThrough;
-            case "server_predictive_opt_in_metadata":
-            case "predictive_opt_in_system_server":
+            case "server_predictive_opt_in_launch_activity":
                 return this::injectSelectedPredictiveBackMetadata;
             case "server_contextual_search_startup_gate":
                 return this::enableContextualSearchServiceAtBoot;

@@ -19,7 +19,6 @@ import android.os.SystemClock;
 import android.provider.Settings;
 import android.util.Log;
 import android.view.SurfaceControl;
-import android.window.WindowOnBackInvokedDispatcher;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -29,7 +28,6 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Predicate;
-import java.util.function.Supplier;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -465,14 +463,14 @@ public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
             Method method = resolvePredictiveBackOptInMethod(classLoader);
             if (method == null) {
                 moduleLog(Log.WARN, TAG,
-                        "Predictive-back opt-in check not found in system_server");
+                        "ActivityTaskSupervisor.realStartActivityLocked not found");
                 return;
             }
             method.setAccessible(true);
             recordHookHandle(hook(method)
-                    .setId("server_predictive_opt_in_metadata")
+                    .setId("server_predictive_opt_in_launch_activity")
                     .intercept(this::injectSelectedPredictiveBackMetadata));
-            moduleLog(Log.INFO, TAG, "Hooked predictive-back opt-in metadata"
+            moduleLog(Log.INFO, TAG, "Hooked launch ActivityInfo predictive-back opt-in"
                     + ", owner=system_server"
                     + ", policy=selectedApplications"
                     + ", preferencesGroup=" + PredictiveBackPreferences.GROUP);
@@ -484,40 +482,58 @@ public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
 
     private Method resolvePredictiveBackOptInMethod(ClassLoader classLoader)
             throws Exception {
-        if (Build.VERSION.SDK_INT >= ANDROID_17_API_LEVEL) {
-            return WindowOnBackInvokedDispatcher.class.getDeclaredMethod(
-                    "isOnBackInvokedCallbackEnabled", ActivityInfo.class,
-                    ApplicationInfo.class, Supplier.class);
-        }
-        Class<?> dispatcherClass = Class.forName(
-                WINDOW_ON_BACK_INVOKED_DISPATCHER, false, classLoader);
-        for (Method method : dispatcherClass.getDeclaredMethods()) {
-            if ("isOnBackInvokedCallbackEnabled".equals(method.getName())
-                    && method.getParameterCount() == 3
-                    && "android.content.pm.ActivityInfo".equals(
-                    method.getParameterTypes()[0].getName())
-                    && "android.content.pm.ApplicationInfo".equals(
-                    method.getParameterTypes()[1].getName())) {
-                return method;
+        Class<?> supervisorClass = Class.forName(
+                "com.android.server.wm.ActivityTaskSupervisor", false, classLoader);
+        Class<?> activityRecordClass = Class.forName(
+                "com.android.server.wm.ActivityRecord", false, classLoader);
+        Method match = null;
+        for (Method method : supervisorClass.getDeclaredMethods()) {
+            Class<?>[] parameters = method.getParameterTypes();
+            if (!"realStartActivityLocked".equals(method.getName())
+                    || parameters.length != 4
+                    || parameters[0] != activityRecordClass
+                    || !"com.android.server.wm.WindowProcessController".equals(
+                    parameters[1].getName())
+                    || parameters[2] != boolean.class
+                    || parameters[3] != boolean.class
+                    || method.getReturnType() != boolean.class) {
+                continue;
             }
+            if (match != null) {
+                throw new NoSuchMethodException(
+                        "Ambiguous ActivityTaskSupervisor.realStartActivityLocked/4");
+            }
+            match = method;
         }
-        return null;
+        return match;
     }
 
     protected Object injectSelectedPredictiveBackMetadata(XposedInterface.Chain chain)
             throws Throwable {
-        Object activityInfoArgument = chain.getArg(0);
-        if (!(activityInfoArgument instanceof ActivityInfo)) {
+        Object activityRecord = chain.getArg(0);
+        if (activityRecord == null) {
             return chain.proceed();
         }
-        ActivityInfo activityInfo = (ActivityInfo) activityInfoArgument;
+        Object activityInfoValue;
+        try {
+            activityInfoValue = readField(activityRecord, "info");
+        } catch (Throwable throwable) {
+            moduleLog(Log.WARN, TAG,
+                    "Could not read launch ActivityRecord.info; preserving platform decision",
+                    throwable);
+            return chain.proceed();
+        }
+        if (!(activityInfoValue instanceof ActivityInfo)) {
+            return chain.proceed();
+        }
+        ActivityInfo activityInfo = (ActivityInfo) activityInfoValue;
         String packageName = activityInfo.packageName;
         if (packageName == null || packageName.isEmpty()
                 || !isPredictiveBackOptInSelected(packageName)) {
             return chain.proceed();
         }
         Boolean applicationOptInEnabled = readApplicationPredictiveBackOptInEnabled(
-                chain.getArg(1));
+                activityInfo.applicationInfo);
         if (applicationOptInEnabled == null) {
             return chain.proceed();
         }
@@ -546,7 +562,7 @@ public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
 
         Object result = chain.proceed();
         int priority = Boolean.TRUE.equals(result) ? Log.INFO : Log.WARN;
-        moduleLog(priority, TAG, "Selected predictive-back metadata result"
+        moduleLog(priority, TAG, "Selected launch ActivityInfo predictive-back opt-in"
                 + ", package=" + packageName
                 + ", activity=" + shortObject(activityInfo)
                 + ", activityFlags=" + originalFlags + "->" + effectiveFlags
