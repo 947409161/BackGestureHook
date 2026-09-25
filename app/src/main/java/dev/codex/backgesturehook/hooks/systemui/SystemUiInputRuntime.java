@@ -89,7 +89,6 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
     /** NavigationBar instances remain discoverable while the Android 16 switch is disabled. */
     protected final Set<Object> contextualSearchNavigationBars =
             Collections.newSetFromMap(new WeakHashMap<>());
-    protected volatile Object[] pendingHotReloadContextualSearchNavigationBars = new Object[0];
 
     protected volatile SharedPreferences hyperOsIndicatorPreferences;
     protected volatile boolean hyperOsIndicatorPreferencesFailureLogged;
@@ -103,30 +102,8 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
     protected volatile boolean contextualSearchServiceUnavailableLogged;
 
     protected boolean isContextualSearchLongPressEnabled() {
-        try {
-            SharedPreferences preferences = contextualSearchPreferences;
-            if (preferences == null) {
-                synchronized (this) {
-                    preferences = contextualSearchPreferences;
-                    if (preferences == null) {
-                        preferences = getRemotePreferences(PredictiveBackPreferences.GROUP);
-                        contextualSearchPreferences = preferences;
-                    }
-                }
-            }
-            boolean enabled = preferences.getBoolean(
-                    PredictiveBackPreferences.KEY_CONTEXTUAL_SEARCH_LONG_PRESS,
-                    PredictiveBackPreferences.DEFAULT_CONTEXTUAL_SEARCH_LONG_PRESS);
-            contextualSearchPreferencesFailureLogged = false;
-            return enabled;
-        } catch (Throwable throwable) {
-            if (!contextualSearchPreferencesFailureLogged) {
-                contextualSearchPreferencesFailureLogged = true;
-                moduleLog(Log.ERROR, TAG, "Contextual-search preference unavailable"
-                        + ", policy=failClosed", throwable);
-            }
-            return false;
-        }
+        // Circle to Search integration was retired. Ignore settings left by older builds.
+        return false;
     }
 
     /**
@@ -181,26 +158,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
     }
 
     protected boolean isContextualSearchHapticsEnabled() {
-        try {
-            SharedPreferences preferences = contextualSearchPreferences;
-            if (preferences == null) {
-                synchronized (this) {
-                    preferences = contextualSearchPreferences;
-                    if (preferences == null) {
-                        preferences = getRemotePreferences(PredictiveBackPreferences.GROUP);
-                        contextualSearchPreferences = preferences;
-                    }
-                }
-            }
-            return preferences.getBoolean(
-                    PredictiveBackPreferences.KEY_CONTEXTUAL_SEARCH_HAPTICS,
-                    PredictiveBackPreferences.DEFAULT_CONTEXTUAL_SEARCH_HAPTICS);
-        } catch (Throwable throwable) {
-            moduleLog(Log.WARN, TAG,
-                    "Contextual-search haptic preference unavailable, policy=disabled",
-                    throwable);
-            return false;
-        }
+        return false;
     }
 
     /** MiCTS-compatible click feedback, emitted only after native CTS succeeds. */
@@ -639,15 +597,12 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
     }
 
     protected boolean isHyperOsHapticsEnabled() {
-        return readHyperOsBooleanPreference(
-                PredictiveBackPreferences.KEY_HYPEROS_HAPTICS,
-                PredictiveBackPreferences.DEFAULT_HYPEROS_HAPTICS);
+        // Preserve the platform's native BackPanel haptic effect.
+        return false;
     }
 
     protected boolean isHyperOsHapticsEnhancedEnabled() {
-        return readHyperOsBooleanPreference(
-                PredictiveBackPreferences.KEY_HYPEROS_HAPTICS_ENHANCED,
-                PredictiveBackPreferences.DEFAULT_HYPEROS_HAPTICS_ENHANCED);
+        return false;
     }
 
     @Override
@@ -655,13 +610,6 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
         return readHyperOsBooleanPreference(
                 PredictiveBackPreferences.KEY_HYPEROS_SLIDE_ANIMATION,
                 PredictiveBackPreferences.DEFAULT_HYPEROS_SLIDE_ANIMATION);
-    }
-
-    @Override
-    protected boolean isOneUiCrossTaskAnimationEnabled() {
-        return readHyperOsBooleanPreference(
-                PredictiveBackPreferences.KEY_ONEUI_CROSS_TASK_ANIMATION,
-                PredictiveBackPreferences.DEFAULT_ONEUI_CROSS_TASK_ANIMATION);
     }
 
     protected boolean readHyperOsBooleanPreference(String key, boolean defaultValue) {

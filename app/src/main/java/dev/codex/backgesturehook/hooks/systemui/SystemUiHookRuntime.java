@@ -10,7 +10,6 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.content.SharedPreferences;
 import android.graphics.Insets;
 import android.graphics.Matrix;
 import android.graphics.Point;
@@ -72,34 +71,6 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
     private volatile SystemUiPlatformImpl systemUiPlatformImpl;
     protected volatile boolean flymeShellBackAnimationHooksReady;
     private final ThreadLocal<Object> flymeBackAnimationAdapterOverride = new ThreadLocal<>();
-    private volatile SharedPreferences contextualSearchStatePreferences;
-    private volatile Context contextualSearchStateContext;
-    private final SharedPreferences.OnSharedPreferenceChangeListener
-            contextualSearchStatePreferenceListener = (preferences, key) -> {
-                if (!PredictiveBackPreferences.KEY_CONTEXTUAL_SEARCH_LONG_PRESS
-                        .equals(key)) {
-                    return;
-                }
-                contextualSearchPreferences = preferences;
-                Context context = contextualSearchStateContext;
-                SystemUiPlatformImpl implementation = systemUiPlatformImpl;
-                if (context == null || implementation == null) {
-                    return;
-                }
-                Handler mainHandler = new Handler(context.getMainLooper());
-                mainHandler.post(() -> {
-                    if (contextualSearchStateContext != context) {
-                        return;
-                    }
-                    if (!implementation.nativeLauncherOwnsContextualSearchLongPress()) {
-                        refreshContextualSearchInputReceivers();
-                        return;
-                    }
-                    publishSystemUiInputArbiterState(context,
-                            systemUiInputArbiterMonitorCount.get() > 0,
-                            "contextualSearchPreference:" + key);
-                });
-            };
 
 
     protected void installSystemUiHooks(ClassLoader classLoader) {
@@ -115,7 +86,6 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                 return;
             }
             selectSystemUiPlatformImpl(classLoader);
-            hookContextualSearchNavigationBar(classLoader, true, true);
             Context systemUiContext = resolveCurrentApplicationContext(classLoader);
             if (systemUiContext != null) {
                 ensureMiuiOverviewStateReceiver(systemUiContext);
@@ -178,100 +148,6 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         } catch (Throwable throwable) {
             moduleLog(Log.WARN, TAG,
                     "Flyme OEM edge trigger-area hook unavailable; preserving native area",
-                    throwable);
-        }
-    }
-
-    protected void hookContextualSearchNavigationBar(
-            ClassLoader classLoader, boolean hookAttach, boolean hookDetach) {
-        try {
-            Class<?> navigationBarClass = Class.forName(
-                    NAVIGATION_BAR, false, classLoader);
-            if (hookDetach) {
-                Method detached = navigationBarClass.getDeclaredMethod("onViewDetached");
-                detached.setAccessible(true);
-                recordHookHandle(hook(detached)
-                        .setId("systemui_contextual_search_nav_detach")
-                        .intercept(this::detachContextualSearchBeforeNavigationBarDetached));
-            }
-            if (hookAttach) {
-                Method attached = navigationBarClass.getDeclaredMethod("onViewAttached");
-                attached.setAccessible(true);
-                recordHookHandle(hook(attached)
-                        .setId("systemui_contextual_search_nav_attach")
-                        .intercept(this::attachContextualSearchAfterNavigationBarAttached));
-            }
-            moduleLog(Log.INFO, TAG,
-                    "Installed contextual-search NavigationBar lifecycle hooks"
-                            + ", attach=" + hookAttach + ", detach=" + hookDetach);
-        } catch (Throwable throwable) {
-            moduleLog(Log.WARN, TAG,
-                    "Contextual-search NavigationBar lifecycle unavailable", throwable);
-        }
-    }
-
-    protected Object attachContextualSearchAfterNavigationBarAttached(
-            XposedInterface.Chain chain) throws Throwable {
-        Object result = chain.proceed();
-        if (!requireSystemUiPlatformImpl()
-                .nativeLauncherOwnsContextualSearchLongPress()) {
-            attachContextualSearchInputReceiver(chain.getThisObject());
-        }
-        return result;
-    }
-
-    protected Object detachContextualSearchBeforeNavigationBarDetached(
-            XposedInterface.Chain chain) throws Throwable {
-        forgetContextualSearchNavigationBar(chain.getThisObject());
-        detachContextualSearchInputReceiver(chain.getThisObject());
-        return chain.proceed();
-    }
-
-    @Override
-    protected void restoreContextualSearchInputReceivers(Object[] navigationBars) {
-        if (requireSystemUiPlatformImpl()
-                .nativeLauncherOwnsContextualSearchLongPress()) {
-            return;
-        }
-        super.restoreContextualSearchInputReceivers(navigationBars);
-    }
-
-    protected synchronized void ensureContextualSearchStatePreferenceListener(
-            Context context) {
-        if (context == null || contextualSearchStatePreferences != null) {
-            return;
-        }
-        try {
-            SharedPreferences preferences = getRemotePreferences(
-                    PredictiveBackPreferences.GROUP);
-            preferences.registerOnSharedPreferenceChangeListener(
-                    contextualSearchStatePreferenceListener);
-            contextualSearchPreferences = preferences;
-            contextualSearchStatePreferences = preferences;
-            contextualSearchStateContext = context.getApplicationContext();
-            moduleLog(Log.INFO, TAG,
-                    "Registered live contextual-search preference listener");
-        } catch (Throwable throwable) {
-            moduleLog(Log.WARN, TAG,
-                    "Live contextual-search preference listener unavailable",
-                    throwable);
-        }
-    }
-
-    protected synchronized void releaseContextualSearchStatePreferenceListener() {
-        SharedPreferences preferences = contextualSearchStatePreferences;
-        contextualSearchStatePreferences = null;
-        contextualSearchStateContext = null;
-        contextualSearchPreferences = null;
-        if (preferences == null) {
-            return;
-        }
-        try {
-            preferences.unregisterOnSharedPreferenceChangeListener(
-                    contextualSearchStatePreferenceListener);
-        } catch (Throwable throwable) {
-            moduleLog(Log.WARN, TAG,
-                    "Failed to unregister live contextual-search preference listener",
                     throwable);
         }
     }
@@ -2453,7 +2329,6 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             hookFreeformCrossActivityScrimCreation();
             hookCrossActivitySlideAnimation(classLoader,
                     true, true, true, true, true, true);
-            hookOneUiCrossTaskAnimation(classLoader, true, true);
             hookCrossTaskBackground(classLoader);
             moduleLog(Log.INFO, TAG, "Hooked Shell BackAnimationController AOSP path");
         } catch (Throwable throwable) {
@@ -3633,8 +3508,6 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
     protected volatile boolean miuixSlideAnimActive;
     protected final AtomicReference<OneUiCrossTaskSession>
             oneUiCrossTaskSession = new AtomicReference<>();
-    protected volatile Method oneUiCrossTaskFinishMethod;
-    protected boolean oneUiCrossTaskRegistrationReentry;
     protected final RectF miuixSlideCommitClosing = new RectF();
     protected final RectF miuixSlideCommitEntering = new RectF();
     protected boolean miuixSlideCommitPoseCaptured;
@@ -3659,60 +3532,9 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
     protected static final float MIUIX_SLIDE_PARALLAX_FRACTION = 0.25f;
     protected static final float MIUIX_SLIDE_SCRIM_OMEGA = 12.083f;
     protected static final float MIUIX_SLIDE_SCRIM_MAX_ALPHA = 0.5f;
-    protected static final long ONEUI_CROSS_TASK_SETTLE_DURATION_MS = 525L;
-    protected static final float ONEUI_CROSS_TASK_MARGIN_FRACTION = 0.08f;
-    protected static final float ONEUI_CROSS_TASK_TOUCH_Y_FRACTION = 0.1f;
-    protected static final PathInterpolator ONEUI_CROSS_TASK_SETTLE_INTERPOLATOR =
-            new PathInterpolator(0.22f, 0.25f, 0.0f, 1.0f);
 
     protected static final class OneUiCrossTaskSession {
-        final Object animation;
-        final BackProgressAnimator progressAnimator;
-        final Object closingTarget;
-        final Object enteringTarget;
-        final SurfaceControl closingLeash;
-        final SurfaceControl enteringLeash;
-        final SurfaceControl.Transaction transaction;
-        final BackProgressAnimator.ProgressCallback nativeProgressCallback;
-        final Rect taskRect;
-        final Matrix matrix = new Matrix();
-        final float[] matrixValues = new float[9];
-        final RectF closingCurrent = new RectF();
-        final RectF enteringCurrent = new RectF();
-        final AtomicBoolean terminal = new AtomicBoolean();
-        final float cornerRadius;
-        final int closingTaskId;
-        final int enteringTaskId;
-        final float initialTouchY;
-        volatile float scale = 1.0f;
         volatile ValueAnimator settleAnimator;
-        volatile BackEvent lastEvent;
-        volatile boolean invokingNativeFinish;
-
-        OneUiCrossTaskSession(Object animation,
-                              BackProgressAnimator progressAnimator,
-                              Object closingTarget, Object enteringTarget,
-                              SurfaceControl closingLeash,
-                              SurfaceControl enteringLeash,
-                              SurfaceControl.Transaction transaction,
-                              BackProgressAnimator.ProgressCallback nativeProgressCallback,
-                              Rect taskRect, float cornerRadius,
-                              int closingTaskId, int enteringTaskId,
-                              float initialTouchY) {
-            this.animation = animation;
-            this.progressAnimator = progressAnimator;
-            this.closingTarget = closingTarget;
-            this.enteringTarget = enteringTarget;
-            this.closingLeash = closingLeash;
-            this.enteringLeash = enteringLeash;
-            this.transaction = transaction;
-            this.nativeProgressCallback = nativeProgressCallback;
-            this.taskRect = taskRect;
-            this.cornerRadius = cornerRadius;
-            this.closingTaskId = closingTaskId;
-            this.enteringTaskId = enteringTaskId;
-            this.initialTouchY = initialTouchY;
-        }
     }
 
     protected static final class FreeformColorRootCandidate {
@@ -4166,507 +3988,6 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             moduleLog(Log.WARN, TAG, "Failed to arm miuix slide geometry", throwable);
         }
         return result;
-    }
-
-    protected boolean interceptOneUiCrossTaskProgressRegistration(
-            XposedInterface.Chain chain) throws Throwable {
-        if (!isOneUiCrossTaskAnimationEnabled()
-                || oneUiCrossTaskFinishMethod == null
-                || aospCrossTaskAnimation == null) {
-            return false;
-        }
-        Object animation = aospCrossTaskAnimation;
-        try {
-            Object progressObject = readFirstCrossTaskField(
-                    animation, "mProgressAnimator", "progressAnimator");
-            if (progressObject != chain.getThisObject()
-                    || !(progressObject instanceof BackProgressAnimator)) {
-                return false;
-            }
-            Object callbackObject = chain.getArg(1);
-            if (!(callbackObject instanceof BackProgressAnimator.ProgressCallback)) {
-                return false;
-            }
-            OneUiCrossTaskSession session = createOneUiCrossTaskSession(
-                    animation, (BackProgressAnimator) progressObject,
-                    (BackProgressAnimator.ProgressCallback) callbackObject,
-                    (BackMotionEvent) chain.getArg(0));
-            if (session == null || !oneUiCrossTaskSession.compareAndSet(null, session)) {
-                return false;
-            }
-            BackProgressAnimator.ProgressCallback replacement = event -> {
-                OneUiCrossTaskSession current = oneUiCrossTaskSession.get();
-                if (current != session || session.terminal.get()) {
-                    return;
-                }
-                try {
-                    if (!isOneUiCrossTaskAnimationEnabled()
-                            || !isExactOneUiCrossTaskSession(session)) {
-                        oneUiCrossTaskSession.compareAndSet(session, null);
-                        session.nativeProgressCallback.onProgressUpdate(event);
-                        return;
-                    }
-                    session.lastEvent = event;
-                    applyOneUiCrossTaskGestureFrame(session, event);
-                } catch (Throwable throwable) {
-                    oneUiCrossTaskSession.compareAndSet(session, null);
-                    moduleLog(Log.WARN, TAG,
-                            "One UI CrossTask frame failed; restored native driver",
-                            throwable);
-                    session.nativeProgressCallback.onProgressUpdate(event);
-                }
-            };
-            oneUiCrossTaskRegistrationReentry = true;
-            try {
-                session.progressAnimator.onBackStarted(
-                        (BackMotionEvent) chain.getArg(0), replacement);
-            } finally {
-                oneUiCrossTaskRegistrationReentry = false;
-            }
-            moduleLog(Log.INFO, TAG, "Armed One UI CrossTask gesture"
-                    + ", animation=" + shortObject(animation)
-                    + ", task=" + session.closingTaskId
-                    + "->" + session.enteringTaskId
-                    + ", impl=" + requireSystemUiPlatformImpl().name());
-            return true;
-        } catch (Throwable throwable) {
-            oneUiCrossTaskSession.set(null);
-            moduleLog(Log.WARN, TAG,
-                    "One UI CrossTask gesture did not pass fail-closed validation",
-                    throwable);
-            return false;
-        }
-    }
-
-    protected OneUiCrossTaskSession createOneUiCrossTaskSession(
-            Object animation, BackProgressAnimator progressAnimator,
-            BackProgressAnimator.ProgressCallback nativeCallback,
-            BackMotionEvent startEvent) throws Exception {
-        Object closingObject = readFirstCrossTaskField(
-                animation, "mClosingTarget", "closingTarget");
-        Object enteringObject = readFirstCrossTaskField(
-                animation, "mEnteringTarget", "enteringTarget");
-        Object transactionObject = readFirstCrossTaskField(
-                animation, "mTransaction", "transaction");
-        Object taskRectObject = readFirstCrossTaskField(
-                animation, "mStartTaskRect", "startTaskRect");
-        if (!(transactionObject instanceof SurfaceControl.Transaction)
-                || !(taskRectObject instanceof Rect)) {
-            return null;
-        }
-        Object closingLeashObject = readFirstCrossTaskField(closingObject, "leash");
-        Object enteringLeashObject = readFirstCrossTaskField(enteringObject, "leash");
-        if (!(closingLeashObject instanceof SurfaceControl)
-                || !(enteringLeashObject instanceof SurfaceControl)) {
-            return null;
-        }
-        SurfaceControl closingLeash = (SurfaceControl) closingLeashObject;
-        SurfaceControl enteringLeash = (SurfaceControl) enteringLeashObject;
-        Rect taskRect = new Rect((Rect) taskRectObject);
-        if (!isExactFullscreenCrossTaskPair(animation,
-                closingObject, enteringObject,
-                closingLeash, enteringLeash, taskRect)) {
-            return null;
-        }
-        Object cornerObject = readFirstCrossTaskField(
-                animation, "mCornerRadius", "cornerRadius");
-        float cornerRadius = cornerObject instanceof Number
-                ? Math.max(0.0f, ((Number) cornerObject).floatValue()) : 0.0f;
-        return new OneUiCrossTaskSession(animation, progressAnimator,
-                closingObject, enteringObject, closingLeash, enteringLeash,
-                (SurfaceControl.Transaction) transactionObject,
-                nativeCallback, taskRect, cornerRadius,
-                readIntFieldOrDefault(closingObject, "taskId", -1),
-                readIntFieldOrDefault(enteringObject, "taskId", -1),
-                startEvent.getTouchY());
-    }
-
-    protected boolean isExactFullscreenCrossTaskPair(
-            Object animation, Object closing, Object entering,
-            SurfaceControl closingLeash, SurfaceControl enteringLeash,
-            Rect taskRect) throws Exception {
-        int closingTaskId = readIntFieldOrDefault(closing, "taskId", -1);
-        int enteringTaskId = readIntFieldOrDefault(entering, "taskId", -1);
-        Object closingTaskInfo = readFirstCrossTaskField(closing, "taskInfo");
-        Object enteringTaskInfo = readFirstCrossTaskField(entering, "taskInfo");
-        int closingDisplayId = readIntFieldOrDefault(closingTaskInfo, "displayId", -1);
-        int enteringDisplayId = readIntFieldOrDefault(enteringTaskInfo, "displayId", -1);
-        if (closing == entering
-                || readIntFieldOrDefault(closing, "mode", -1) != 1
-                || readIntFieldOrDefault(entering, "mode", -1) != 0
-                || closingTaskId < 0 || enteringTaskId < 0
-                || closingTaskId == enteringTaskId
-                || resolveTaskInfoWindowingMode(closingTaskInfo)
-                != WINDOWING_MODE_FULLSCREEN
-                || resolveTaskInfoWindowingMode(enteringTaskInfo)
-                != WINDOWING_MODE_FULLSCREEN
-                || resolveTaskInfoActivityType(closingTaskInfo) != ACTIVITY_TYPE_STANDARD
-                || resolveTaskInfoActivityType(enteringTaskInfo) != ACTIVITY_TYPE_STANDARD
-                || closingDisplayId < 0 || closingDisplayId != enteringDisplayId
-                || !closingLeash.isValid() || !enteringLeash.isValid()
-                || taskRect.isEmpty() || taskRect.left != 0 || taskRect.top != 0) {
-            return false;
-        }
-        Object closingConfiguration = readFirstCrossTaskField(
-                closing, "windowConfiguration");
-        Object enteringConfiguration = readFirstCrossTaskField(
-                entering, "windowConfiguration");
-        Object closingBoundsObject = invokeAnyMethod(
-                closingConfiguration, "getBounds", new Object[0]);
-        Object enteringBoundsObject = invokeAnyMethod(
-                enteringConfiguration, "getBounds", new Object[0]);
-        if (!(closingBoundsObject instanceof Rect)
-                || !(enteringBoundsObject instanceof Rect)) {
-            return false;
-        }
-        Rect closingBounds = (Rect) closingBoundsObject;
-        Rect enteringBounds = (Rect) enteringBoundsObject;
-        if (closingBounds == null || enteringBounds == null
-                || closingBounds.isEmpty() || enteringBounds.isEmpty()
-                || closingBounds.width() != enteringBounds.width()
-                || closingBounds.height() != enteringBounds.height()
-                || taskRect.width() != closingBounds.width()
-                || taskRect.height() > closingBounds.height()) {
-            return false;
-        }
-        Object runner = readFirstCrossTaskField(
-                animation, "mBackAnimationRunner", "backAnimationRunner");
-        Object apps = readFirstCrossTaskField(runner, "mApps", "apps");
-        if (apps == null || !apps.getClass().isArray()
-                || Array.getLength(apps) != 2) {
-            return false;
-        }
-        Object first = Array.get(apps, 0);
-        Object second = Array.get(apps, 1);
-        return first != second
-                && (first == closing && second == entering
-                || first == entering && second == closing);
-    }
-
-    protected boolean isExactOneUiCrossTaskSession(
-            OneUiCrossTaskSession session) throws Exception {
-        return aospCrossTaskAnimation == session.animation
-                && readFirstCrossTaskField(
-                session.animation, "mProgressAnimator", "progressAnimator")
-                == session.progressAnimator
-                && readFirstCrossTaskField(
-                session.animation, "mClosingTarget", "closingTarget")
-                == session.closingTarget
-                && readFirstCrossTaskField(
-                session.animation, "mEnteringTarget", "enteringTarget")
-                == session.enteringTarget
-                && readFirstCrossTaskField(session.closingTarget, "leash")
-                == session.closingLeash
-                && readFirstCrossTaskField(session.enteringTarget, "leash")
-                == session.enteringLeash
-                && session.closingLeash.isValid()
-                && session.enteringLeash.isValid();
-    }
-
-    protected Object readFirstCrossTaskField(Object target, String... names)
-            throws Exception {
-        Throwable failure = null;
-        for (String name : names) {
-            try {
-                return readField(target, name);
-            } catch (Throwable throwable) {
-                failure = throwable;
-            }
-        }
-        if (failure instanceof Exception) {
-            throw (Exception) failure;
-        }
-        throw new NoSuchFieldException(target.getClass().getName()
-                + "." + Arrays.toString(names));
-    }
-
-    /**
-     * Fires when any BackProgressAnimator registers its per-gesture ProgressCallback.
-     * For the armed cross-activity animation's own animator, the native callback (the
-     * inlined geometry) is replaced with the miuix frame driver; every other animator
-     * registers untouched.
-     */
-    protected Object onCrossActivitySlideProgressRegistration(
-            XposedInterface.Chain chain) throws Throwable {
-        if (!oneUiCrossTaskRegistrationReentry
-                && interceptOneUiCrossTaskProgressRegistration(chain)) {
-            return null;
-        }
-        if (miuixSlideRegistrationReentry || !miuixSlideAnimActive) {
-            return chain.proceed();
-        }
-        WeakReference<Object> armedReference = miuixSlideArmedAnimation;
-        Object animation = armedReference == null ? null : armedReference.get();
-        if (animation == null) {
-            return chain.proceed();
-        }
-        Object progressAnimator;
-        try {
-            progressAnimator = readField(animation, "progressAnimator");
-        } catch (Throwable throwable) {
-            moduleLog(Log.WARN, TAG, "Failed to read progressAnimator", throwable);
-            return chain.proceed();
-        }
-        if (progressAnimator != chain.getThisObject()) {
-            return chain.proceed();
-        }
-        Object originalCallback = chain.getArg(1);
-        BackProgressAnimator.ProgressCallback replacement = event -> {
-            try {
-                onMiuixSlideFrame(animation, event);
-            } catch (Throwable throwable) {
-                miuixSlideAnimActive = false;
-                moduleLog(Log.WARN, TAG, "miuix slide frame failed"
-                        + ", fallingBackToNativeCallback=true", throwable);
-                if (originalCallback instanceof BackProgressAnimator.ProgressCallback) {
-                    ((BackProgressAnimator.ProgressCallback) originalCallback)
-                            .onProgressUpdate(event);
-                }
-            }
-        };
-        miuixSlideRegistrationReentry = true;
-        try {
-            ((BackProgressAnimator) chain.getThisObject()).onBackStarted(
-                    (BackMotionEvent) chain.getArg(0), replacement);
-        } finally {
-            miuixSlideRegistrationReentry = false;
-        }
-        moduleLog(Log.INFO, TAG, "miuix slide progress callback proxied");
-        return null;
-    }
-
-    protected void applyOneUiCrossTaskGestureFrame(
-            OneUiCrossTaskSession session, BackEvent event) throws Exception {
-        float progress = Math.max(0.0f, Math.min(1.0f, event.getProgress()));
-        float animationProgress = progress <= 0.5f
-                ? 1.2f * progress
-                : 0.6f + (progress - 0.5f) * 0.3f;
-        float width = session.taskRect.width();
-        float height = session.taskRect.height();
-        float halfHeight = height / 2.0f;
-        float scale = 1.0f - 0.26666668f * animationProgress;
-        session.scale = scale;
-        float top = (1.0f - scale) * halfHeight;
-        float bottom = (scale + 1.0f) * halfHeight;
-        float touchOffset = (event.getTouchY() - session.initialTouchY)
-                * ONEUI_CROSS_TASK_TOUCH_Y_FRACTION;
-        if (touchOffset > 0.0f && bottom + touchOffset >= height) {
-            touchOffset = height - bottom;
-        } else if (touchOffset < 0.0f && top + touchOffset <= 0.0f) {
-            touchOffset = -top;
-        }
-        top += touchOffset;
-        bottom += touchOffset;
-        float margin = ONEUI_CROSS_TASK_MARGIN_FRACTION * width;
-        float enteringLeft = -width - margin
-                + 0.528f * width * animationProgress;
-        float closingLeft = 0.24f * width * animationProgress;
-        session.enteringCurrent.set(enteringLeft, top,
-                enteringLeft + scale * width, bottom);
-        session.closingCurrent.set(closingLeft, top,
-                closingLeft + scale * width, bottom);
-        applyOneUiCrossTaskFrame(session, scale, scale);
-    }
-
-    protected Object onOneUiCrossTaskInvoked(XposedInterface.Chain chain)
-            throws Throwable {
-        OneUiCrossTaskSession session = oneUiCrossTaskSession.get();
-        if (session == null) {
-            return chain.proceed();
-        }
-        try {
-            Object runner = readFirstCrossTaskField(
-                    session.animation, "mBackAnimationRunner", "backAnimationRunner");
-            Object callback = readFirstCrossTaskField(runner, "mCallback", "callback");
-            if (callback != chain.getThisObject()) {
-                return chain.proceed();
-            }
-            if (!isOneUiCrossTaskAnimationEnabled()
-                    || !isExactOneUiCrossTaskSession(session)) {
-                restoreOneUiNativeProgress(session);
-                oneUiCrossTaskSession.compareAndSet(session, null);
-                return chain.proceed();
-            }
-            if (!session.terminal.compareAndSet(false, true)) {
-                return null;
-            }
-            RectF enteringStart = new RectF(session.enteringCurrent);
-            RectF closingStart = new RectF(session.closingCurrent);
-            float startScale = session.scale;
-            session.progressAnimator.reset();
-            ValueAnimator animator = ValueAnimator.ofFloat(0.0f, 1.0f);
-            animator.setDuration(ONEUI_CROSS_TASK_SETTLE_DURATION_MS);
-            animator.setInterpolator(ONEUI_CROSS_TASK_SETTLE_INTERPOLATOR);
-            animator.addUpdateListener(valueAnimator -> {
-                try {
-                    applyOneUiCrossTaskSettleFrame(session,
-                            enteringStart, closingStart, startScale,
-                            valueAnimator.getAnimatedFraction());
-                } catch (Throwable throwable) {
-                    moduleLog(Log.WARN, TAG,
-                            "One UI CrossTask settle frame failed", throwable);
-                    valueAnimator.cancel();
-                }
-            });
-            animator.addListener(new AnimatorListenerAdapter() {
-                private boolean finished;
-
-                @Override
-                public void onAnimationEnd(Animator animation) {
-                    if (finished || session.invokingNativeFinish) {
-                        return;
-                    }
-                    finished = true;
-                    finishOneUiCrossTaskSession(session);
-                }
-            });
-            session.settleAnimator = animator;
-            animator.start();
-            moduleLog(Log.INFO, TAG, "Started One UI CrossTask commit settle"
-                    + ", durationMs=" + ONEUI_CROSS_TASK_SETTLE_DURATION_MS);
-            return null;
-        } catch (Throwable throwable) {
-            restoreOneUiNativeProgress(session);
-            oneUiCrossTaskSession.compareAndSet(session, null);
-            moduleLog(Log.WARN, TAG,
-                    "One UI CrossTask commit rejected; restored native commit",
-                    throwable);
-            return chain.proceed();
-        }
-    }
-
-    protected void applyOneUiCrossTaskSettleFrame(
-            OneUiCrossTaskSession session, RectF enteringStart,
-            RectF closingStart, float startScale, float fraction)
-            throws Exception {
-        float width = session.taskRect.width();
-        float height = session.taskRect.height();
-        float enteringTravel = Math.abs(session.taskRect.left - enteringStart.left)
-                * fraction + 0.5f;
-        float enteringScale = startScale + (1.0f - startScale) * fraction;
-        float enteringLeft = Math.min(enteringStart.left + enteringTravel, 0.0f);
-        session.enteringCurrent.set(enteringLeft,
-                (1.0f - fraction) * enteringStart.top,
-                enteringLeft + width * enteringScale,
-                enteringStart.bottom + (height - enteringStart.bottom) * fraction);
-
-        float closingDestination = session.taskRect.right + 0.08f * width;
-        float closingOffset = 0.5f
-                + (closingDestination - closingStart.left) * fraction;
-        float closingLeft = Math.min(
-                closingStart.left + closingOffset, closingDestination);
-        float closingScale = startScale + (0.9f - startScale) * fraction;
-        float verticalInset = 0.05f * height;
-        session.closingCurrent.set(closingLeft,
-                closingStart.top + (verticalInset - closingStart.top) * fraction,
-                closingLeft + width * closingScale,
-                closingStart.bottom
-                        + (height - verticalInset - closingStart.bottom) * fraction);
-        applyOneUiCrossTaskFrame(session, closingScale, enteringScale);
-    }
-
-    protected void applyOneUiCrossTaskFrame(
-            OneUiCrossTaskSession session, float closingScale,
-            float enteringScale) throws Exception {
-        applyOneUiCrossTaskTransform(session, session.closingLeash,
-                session.closingCurrent, closingScale);
-        applyOneUiCrossTaskTransform(session, session.enteringLeash,
-                session.enteringCurrent, enteringScale);
-        copyOneUiCrossTaskRect(session.animation,
-                session.closingCurrent, "mClosingCurrentRect", "closingCurrentRect");
-        copyOneUiCrossTaskRect(session.animation,
-                session.enteringCurrent, "mEnteringCurrentRect", "enteringCurrentRect");
-        session.transaction.apply();
-    }
-
-    protected void applyOneUiCrossTaskTransform(
-            OneUiCrossTaskSession session, SurfaceControl leash,
-            RectF destination, float scale) {
-        session.matrix.reset();
-        session.matrix.setScale(scale, scale);
-        session.matrix.postTranslate(destination.left, destination.top);
-        try {
-            invokeMethod(session.transaction, "setMatrix",
-                    new Class<?>[]{SurfaceControl.class, Matrix.class, float[].class},
-                    new Object[]{leash, session.matrix, session.matrixValues});
-            invokeMethod(session.transaction, "setWindowCrop",
-                    new Class<?>[]{SurfaceControl.class, Rect.class},
-                    new Object[]{leash, session.taskRect});
-            invokeMethod(session.transaction, "setCornerRadius",
-                    new Class<?>[]{SurfaceControl.class, float.class},
-                    new Object[]{leash, Float.valueOf(session.cornerRadius)});
-        } catch (Exception exception) {
-            throw new IllegalStateException("CrossTask transform API unavailable", exception);
-        }
-    }
-
-    protected void copyOneUiCrossTaskRect(
-            Object animation, RectF value, String... names) {
-        for (String name : names) {
-            try {
-                Object target = readField(animation, name);
-                if (target instanceof RectF) {
-                    ((RectF) target).set(value);
-                    return;
-                }
-            } catch (Throwable ignored) {
-            }
-        }
-    }
-
-    protected void restoreOneUiNativeProgress(OneUiCrossTaskSession session) {
-        BackEvent lastEvent = session.lastEvent;
-        if (lastEvent == null) {
-            return;
-        }
-        try {
-            session.nativeProgressCallback.onProgressUpdate(lastEvent);
-        } catch (Throwable throwable) {
-            moduleLog(Log.WARN, TAG,
-                    "Failed to restore native CrossTask progress", throwable);
-        }
-    }
-
-    protected void finishOneUiCrossTaskSession(OneUiCrossTaskSession session) {
-        try {
-            Method finish = oneUiCrossTaskFinishMethod;
-            if (finish == null
-                    || !finish.getDeclaringClass().isInstance(session.animation)) {
-                throw new IllegalStateException("CrossTask finish method unavailable");
-            }
-            session.invokingNativeFinish = true;
-            finish.invoke(session.animation);
-        } catch (InvocationTargetException throwable) {
-            moduleLog(Log.WARN, TAG, "One UI CrossTask native finish failed",
-                    throwable.getCause() == null ? throwable : throwable.getCause());
-            oneUiCrossTaskSession.compareAndSet(session, null);
-        } catch (Throwable throwable) {
-            moduleLog(Log.WARN, TAG, "One UI CrossTask native finish failed", throwable);
-            oneUiCrossTaskSession.compareAndSet(session, null);
-        } finally {
-            session.invokingNativeFinish = false;
-        }
-    }
-
-    protected Object onOneUiCrossTaskFinished(XposedInterface.Chain chain)
-            throws Throwable {
-        OneUiCrossTaskSession session = oneUiCrossTaskSession.get();
-        if (session != null && session.animation == chain.getThisObject()) {
-            oneUiCrossTaskSession.compareAndSet(session, null);
-            ValueAnimator animator = session.settleAnimator;
-            if (!session.invokingNativeFinish
-                    && animator != null && animator.isRunning()) {
-                session.invokingNativeFinish = true;
-                animator.cancel();
-            }
-        }
-        try {
-            return chain.proceed();
-        } finally {
-            if (session != null) {
-                session.invokingNativeFinish = false;
-            }
-        }
     }
 
     protected void cancelOneUiCrossTaskForHotReload() {
@@ -6725,20 +6046,6 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                             getSentFromUid(), getSentFromPackage(), intent);
                     return;
                 }
-                if (MODULE_CONTEXTUAL_SEARCH_TRIGGERED.equals(action)) {
-                    int senderUid = getSentFromUid();
-                    String senderPackage = getSentFromPackage();
-                    if (!isTrustedMiuiHomeBroadcastSender(
-                            receiverContext, senderUid, senderPackage)) {
-                        moduleLog(Log.WARN, TAG,
-                                "Rejected untrusted contextual-search trigger"
-                                        + ", uid=" + senderUid
-                                        + ", package=" + senderPackage);
-                        return;
-                    }
-                    playContextualSearchHaptic(receiverContext);
-                    return;
-                }
                 if (!MODULE_MIUI_OVERVIEW_STATE_CHANGE.equals(action)
                         && !MODULE_MIUI_HOME_INPUT_ARBITER_QUERY.equals(action)) {
                     return;
@@ -6962,92 +6269,18 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             } else {
                 filter = new IntentFilter(MODULE_MIUI_OVERVIEW_STATE_CHANGE);
                 filter.addAction(MODULE_MIUI_HOME_INPUT_ARBITER_QUERY);
-                filter.addAction(MODULE_CONTEXTUAL_SEARCH_TRIGGERED);
                 filter.addAction(MODULE_RUNTIME_STATUS_QUERY);
                 filter.addAction(MODULE_RUNTIME_STATUS_REPLY);
             }
             appContext.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED);
             miuiOverviewReceiverContext = appContext;
             miuiOverviewReceiver = receiver;
-            if (!isFlymeDevice()) {
-                ensureContextualSearchStatePreferenceListener(appContext);
-            }
             moduleLog(Log.INFO, TAG, "Registered runtime status receiver"
                     + (isFlymeDevice() ? " for Flyme Shell" : " with Miui launcher state")
                     + ", currentOverviewVisible=" + miuiOverviewVisible);
         } catch (Throwable throwable) {
             moduleLog(Log.ERROR, TAG, "Failed to register Miui overview-state receiver",
                     throwable);
-        }
-    }
-
-    /**
-     * Ports Samsung's Android 16 CrossTask geometry onto Xiaomi's existing Shell runner.
-     * The callback and finish hooks are deliberately separate from the global
-     * BackProgressAnimator hook: the latter only proxies the exact animator owned by the
-     * current registry animation, while Xiaomi still owns target arrival, cancellation,
-     * remote completion, and cleanup on both Android 16 and Android 17.
-     */
-    protected void hookOneUiCrossTaskAnimation(ClassLoader classLoader,
-                                               boolean installInvoke,
-                                               boolean installFinish) {
-        try {
-            Class<?> animationClass = Class.forName(
-                    CROSS_TASK_BACK_ANIMATION, false, classLoader);
-            if (installInvoke) {
-                Class<?> callbackClass = null;
-                try {
-                    callbackClass = Class.forName(
-                            CROSS_TASK_BACK_ANIMATION + "$Callback", false, classLoader);
-                } catch (Throwable ignored) {
-                    for (Class<?> candidate : animationClass.getDeclaredClasses()) {
-                        if (findAnyMethod(candidate, "onBackInvoked", 0) != null) {
-                            if (callbackClass != null) {
-                                throw new NoSuchMethodException(
-                                        "Ambiguous CrossTask onBackInvoked callback");
-                            }
-                            callbackClass = candidate;
-                        }
-                    }
-                }
-                if (callbackClass == null) {
-                    throw new ClassNotFoundException("CrossTask callback");
-                }
-                Method invoked = callbackClass.getDeclaredMethod("onBackInvoked");
-                invoked.setAccessible(true);
-                recordHookHandle(hook(invoked)
-                        .setId("systemui_oneui_cross_task_invoke")
-                        .intercept(this::onOneUiCrossTaskInvoked));
-            }
-            if (installFinish) {
-                Method finish = null;
-                for (Method candidate : animationClass.getDeclaredMethods()) {
-                    if (candidate.getParameterCount() == 0
-                            && candidate.getReturnType() == void.class
-                            && candidate.getName().startsWith("finishAnimation")) {
-                        if (finish != null) {
-                            throw new NoSuchMethodException(
-                                    "Ambiguous CrossTask finishAnimation");
-                        }
-                        finish = candidate;
-                    }
-                }
-                if (finish == null) {
-                    throw new NoSuchMethodException("CrossTask finishAnimation");
-                }
-                finish.setAccessible(true);
-                oneUiCrossTaskFinishMethod = finish;
-                recordHookHandle(hook(finish)
-                        .setId("systemui_oneui_cross_task_finish")
-                        .intercept(this::onOneUiCrossTaskFinished));
-            }
-            moduleLog(Log.INFO, TAG, "Hooked One UI CrossTask animation bridge"
-                    + ", invoke=" + installInvoke + ", finish=" + installFinish
-                    + ", impl=" + requireSystemUiPlatformImpl().name());
-        } catch (Throwable throwable) {
-            oneUiCrossTaskFinishMethod = null;
-            moduleLog(Log.ERROR, TAG,
-                    "Failed to hook One UI CrossTask animation bridge", throwable);
         }
     }
 
@@ -7104,12 +6337,6 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                     .putExtra(EXTRA_INPUT_ARBITER_READY, ready)
                     .putExtra(EXTRA_INPUT_ARBITER_GENERATION,
                             systemUiInputArbiterGeneration)
-                    // The native launcher receiver consumes this marked query as
-                    // an arbiter-state update too. Keep the effective runtime bit
-                    // on the query so a missing boot-created service remains
-                    // fail-closed after an API-102 hot upgrade.
-                    .putExtra(EXTRA_CONTEXTUAL_SEARCH_ENABLED,
-                            isContextualSearchLongPressRuntimeEnabled())
                     .putExtra("sender_uid", Process.myUid());
             Bundle options = BroadcastOptions.makeBasic()
                     .setShareIdentityEnabled(true)
@@ -7354,7 +6581,6 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
     }
 
     protected synchronized void unregisterMiuiOverviewStateReceiver() {
-        releaseContextualSearchStatePreferenceListener();
         BroadcastReceiver receiver = miuiOverviewReceiver;
         Context receiverContext = miuiOverviewReceiverContext;
         miuiOverviewReceiver = null;

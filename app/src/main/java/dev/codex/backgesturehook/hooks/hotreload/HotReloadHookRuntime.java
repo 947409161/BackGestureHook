@@ -8,35 +8,16 @@ import android.os.Looper;
 import android.os.SystemClock;
 import android.util.Log;
 
-import java.lang.reflect.Executable;
-import android.content.SharedPreferences;
-import static dev.codex.backgesturehook.hooks.googleapp.GoogleAppRuntime.GOOGLE_APP;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 
 import dev.codex.backgesturehook.hooks.systemserver.SystemServerHookRuntime;
-import dev.codex.backgesturehook.hooks.googleapp.GoogleAppRuntime;
 import io.github.libxposed.api.XposedInterface;
 import io.github.libxposed.api.XposedModuleInterface;
 
 public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
-
-    private final GoogleAppRuntime googleApp = new GoogleAppRuntime(new GoogleAppRuntime.Host() {
-        @Override public void install(Executable executable, String id, XposedInterface.Hooker hooker) {
-            recordHookHandle(hook(executable).setId(id).intercept(hooker));
-        }
-        @Override public boolean deoptimize(Executable executable) {
-            return HotReloadHookRuntime.this.deoptimize(executable);
-        }
-        @Override public SharedPreferences preferences(String group) { return getRemotePreferences(group); }
-        @Override public void ensureDexKit() { ensureDexKitLibraryLoaded(); }
-        @Override public void log(int priority, String message, Throwable failure) {
-            if (failure == null) moduleLog(priority, TAG, message);
-            else moduleLog(priority, TAG, message, failure);
-        }
-    });
 
     @Override
     public boolean onHotReloading(XposedModuleInterface.HotReloadingParam param) {
@@ -50,21 +31,9 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                             + ", process=" + processName);
             return true;
         }
-        if (googleApp.isResolvingDex()) {
-            moduleLog(Log.WARN, TAG,
-                    "Deferred hot reload during Google dex resolution"
-                            + ", process=" + processName);
-            return false;
-        }
         if (systemUiDexResolutionInFlight.get() != 0) {
             moduleLog(Log.WARN, TAG,
                     "Deferred hot reload during SystemUI dex resolution"
-                            + ", process=" + processName);
-            return false;
-        }
-        if (contextualSearchBridgeCallsInFlight.get() != 0) {
-            moduleLog(Log.WARN, TAG,
-                    "Deferred hot reload during an authenticated contextual-search call"
                             + ", process=" + processName);
             return false;
         }
@@ -158,8 +127,7 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
         acceptedInputToken.set(null);
         miuiHomeAcceptedInputIdentity.set(null);
         endedLauncherOpenWallpaperReset.set(null);
-        Object[] savedContextualSearchNavigationBars =
-                detachAllContextualSearchInputReceiversForHotReload();
+        detachAllContextualSearchInputReceiversForHotReload();
         closeHyperOsBackHapticHelper();
         clearSystemUiReturnHomeCommitIdentity(null, 0L, "hotReload");
         unregisterMiuiOverviewStateReceiver();
@@ -195,7 +163,7 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                 savedHeadlessState,
                 Boolean.valueOf(savedMiuiLauncherEditing),
                 Boolean.valueOf(savedMiuiFolderVisible),
-                savedContextualSearchNavigationBars,
+                null,
                 Long.valueOf(savedMiuiLauncherDartStateOwnerEpoch)
         });
         return true;
@@ -328,10 +296,6 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                             && oldHandle.getExecutable() instanceof java.lang.reflect.Method) {
                         preparePreparedBackStartAnimationInvoker(
                                 (java.lang.reflect.Method) oldHandle.getExecutable());
-                    } else if ("systemui_oneui_cross_task_finish".equals(oldHookId)
-                            && oldHandle.getExecutable() instanceof java.lang.reflect.Method) {
-                        oneUiCrossTaskFinishMethod =
-                                (java.lang.reflect.Method) oldHandle.getExecutable();
                     }
                     replaced++;
                 } else {
@@ -428,7 +392,6 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                     hookPredictiveBackOptInMetadata(serverClassLoader);
                 }
                 hookSecuritySidebarTransientBars(serverClassLoader, oldHookIds);
-                hookContextualSearchCompatibility(serverClassLoader, oldHookIds);
             }
         }
         if (SYSTEM_UI.equals(processName) && hotReloadClassLoader != null) {
@@ -445,14 +408,6 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                 moduleLog(Log.ERROR, TAG,
                         "Failed to restore SystemUI platform implementation after hot reload",
                         throwable);
-            }
-            boolean missingContextualSearchAttach = !oldHookIds.contains(
-                    "systemui_contextual_search_nav_attach");
-            boolean missingContextualSearchDetach = !oldHookIds.contains(
-                    "systemui_contextual_search_nav_detach");
-            if (missingContextualSearchAttach || missingContextualSearchDetach) {
-                hookContextualSearchNavigationBar(hotReloadClassLoader,
-                        missingContextualSearchAttach, missingContextualSearchDetach);
             }
             Class<?> hotReloadBackControllerClass = null;
             if (!oldHookIds.contains("shell_back_onBackAnimationFinished")
@@ -608,12 +563,6 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
             if (!oldHookIds.contains("systemui_cross_task_background")) {
                 hookCrossTaskBackground(hotReloadClassLoader);
             }
-            if (!oldHookIds.contains("systemui_oneui_cross_task_invoke")
-                    || !oldHookIds.contains("systemui_oneui_cross_task_finish")) {
-                hookOneUiCrossTaskAnimation(hotReloadClassLoader,
-                        !oldHookIds.contains("systemui_oneui_cross_task_invoke"),
-                        !oldHookIds.contains("systemui_oneui_cross_task_finish"));
-            }
             if (!backCommitCompositionHookReady) {
                 hookBackCommitComposition(hotReloadClassLoader);
             }
@@ -629,9 +578,6 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
         }
         if (SYSTEM_UI.equals(processName) && !isFlymeDevice()) {
             restoreSystemUiHotReloadLifecycle(hotReloadClassLoader);
-            Object[] navigationBars = pendingHotReloadContextualSearchNavigationBars;
-            pendingHotReloadContextualSearchNavigationBars = new Object[0];
-            restoreContextualSearchInputReceivers(navigationBars);
         }
         if (MIUI_HOME.equals(processName) && hotReloadClassLoader != null) {
             try {
@@ -815,12 +761,6 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                         throwable);
             }
         }
-        if ((GOOGLE_APP.equals(processName)
-                || processName.startsWith(GOOGLE_APP + ":"))
-                && hotReloadClassLoader != null) {
-            googleApp.install(
-                    hotReloadClassLoader, googleApp.resolveSourceDir(), oldHookIds);
-        }
         moduleLog(Log.INFO, TAG, "Hot reloaded, build=" + BUILD_MARK
                 + ", process=" + processName
                 + ", oldHooksReplaced=" + replaced
@@ -831,15 +771,9 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
         if (hookId == null) {
             return null;
         }
-        XposedInterface.Hooker googleHooker = googleApp.replacement(hookId);
-        if (googleHooker != null) return googleHooker;
         switch (hookId) {
             case "systemui_block_miui_gesture_line_progress":
                 return this::interceptMiuiOverviewProxyTransact;
-            case "systemui_contextual_search_nav_attach":
-                return this::attachContextualSearchAfterNavigationBarAttached;
-            case "systemui_contextual_search_nav_detach":
-                return this::detachContextualSearchBeforeNavigationBarDetached;
             case "systemui_navigation_bar_transient_appearance":
             case "systemui_status_bar_transient_appearance":
                 return this::preserveTransientBarAppearance;
@@ -939,16 +873,6 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                 return this::allowCommittedReturnHomeTouchThrough;
             case "server_predictive_opt_in_launch_activity":
                 return this::injectSelectedPredictiveBackMetadata;
-            case "server_contextual_search_startup_gate":
-                return this::enableContextualSearchServiceAtBoot;
-            case "server_contextual_search_start":
-                return this::bridgeContextualSearchSystemUiCall;
-            case "server_contextual_search_state":
-                return this::bridgeContextualSearchProviderCall;
-            case "server_contextual_search_permission":
-                return this::scopeContextualSearchPermission;
-            case "server_contextual_search_provider":
-                return this::scopeContextualSearchProvider;
             case "systemui_default_transition_start":
                 return this::registerDefaultTransitionHandler;
             case "systemui_a17_default_transition_dispatch_start":
@@ -990,10 +914,6 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                 return this::keepFreeformScrimHiddenUntilFirstApply;
             case "systemui_cross_task_background":
                 return this::tintCrossTaskBackground;
-            case "systemui_oneui_cross_task_invoke":
-                return this::onOneUiCrossTaskInvoked;
-            case "systemui_oneui_cross_task_finish":
-                return this::onOneUiCrossTaskFinished;
             case "systemui_back_prepare_reparent":
                 return this::correctPredictiveBackPrepareReparent;
             case "systemui_back_prepared_target_arrival":
@@ -1116,9 +1036,6 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                 if (state.length >= 15) {
                     miuiFolderVisible = Boolean.TRUE.equals(state[14]);
                 }
-                if (state.length >= 16 && state[15] instanceof Object[]) {
-                    pendingHotReloadContextualSearchNavigationBars = (Object[]) state[15];
-                }
                 if (state.length >= 17 && state[16] instanceof Long) {
                     miuiLauncherDartStateOwnerEpoch =
                             ((Long) state[16]).longValue();
@@ -1200,11 +1117,6 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
             installSystemUiHooks(param.getDefaultClassLoader());
         } else if (MIUI_HOME.equals(loadedPackage)) {
             installMiuiHomeHooks(param.getDefaultClassLoader());
-        } else if (GOOGLE_APP.equals(loadedPackage)) {
-            googleApp.install(
-                    param.getDefaultClassLoader(),
-                    param.getApplicationInfo().sourceDir,
-                    Collections.emptySet());
         }
     }
 

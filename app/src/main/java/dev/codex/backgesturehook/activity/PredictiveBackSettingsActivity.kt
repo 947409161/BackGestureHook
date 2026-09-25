@@ -193,14 +193,6 @@ class PredictiveBackSettingsActivity :
                             ),
                         )
                     },
-                    onOpenContextualSearchSettings = {
-                        startActivity(
-                            Intent(
-                                this,
-                                ContextualSearchSettingsActivity::class.java,
-                            ),
-                        )
-                    },
                 )
             }
         }
@@ -525,7 +517,6 @@ private fun PredictiveBackSettingsScreen(
     onClose: () -> Unit,
     onOpenGestureTriggerSettings: () -> Unit,
     onOpenAppList: () -> Unit,
-    onOpenContextualSearchSettings: () -> Unit,
 ) {
     val configurationErrorMessage = stringResource(R.string.predictive_back_config_error)
     val saveErrorMessage = stringResource(R.string.predictive_back_save_error)
@@ -539,14 +530,8 @@ private fun PredictiveBackSettingsScreen(
     var saveError by remember { mutableStateOf<String?>(null) }
     var hyperOsIndicator by remember { mutableStateOf(false) }
     var confirmedHyperOsIndicator by remember { mutableStateOf(false) }
-    var hyperOsHaptics by remember { mutableStateOf(false) }
-    var confirmedHyperOsHaptics by remember { mutableStateOf(false) }
-    var hyperOsHapticsEnhanced by remember { mutableStateOf(false) }
-    var confirmedHyperOsHapticsEnhanced by remember { mutableStateOf(false) }
     var hyperOsSlideAnimation by remember { mutableStateOf(false) }
     var confirmedHyperOsSlideAnimation by remember { mutableStateOf(false) }
-    var oneUiCrossTaskAnimation by remember { mutableStateOf(false) }
-    var confirmedOneUiCrossTaskAnimation by remember { mutableStateOf(false) }
     var moduleLogging by remember { mutableStateOf(true) }
     var confirmedModuleLogging by remember { mutableStateOf(true) }
     val writeMutex = remember(preferences) { Mutex() }
@@ -564,14 +549,8 @@ private fun PredictiveBackSettingsScreen(
         saveError = null
         hyperOsIndicator = false
         confirmedHyperOsIndicator = false
-        hyperOsHaptics = false
-        confirmedHyperOsHaptics = false
-        hyperOsHapticsEnhanced = false
-        confirmedHyperOsHapticsEnhanced = false
         hyperOsSlideAnimation = false
         confirmedHyperOsSlideAnimation = false
-        oneUiCrossTaskAnimation = false
-        confirmedOneUiCrossTaskAnimation = false
         moduleLogging = PredictiveBackPreferences.DEFAULT_MODULE_LOGGING
         confirmedModuleLogging = PredictiveBackPreferences.DEFAULT_MODULE_LOGGING
         if (!serviceStateObserved) {
@@ -587,46 +566,14 @@ private fun PredictiveBackSettingsScreen(
             val loaded = withContext(Dispatchers.IO) {
                 val remotePreferences =
                     service.getRemotePreferences(PredictiveBackPreferences.GROUP)
-                val storedHyperOsHaptics = remotePreferences.getBoolean(
-                    PredictiveBackPreferences.KEY_HYPEROS_HAPTICS,
-                    PredictiveBackPreferences.DEFAULT_HYPEROS_HAPTICS,
-                )
-                val legacyAospHaptics = remotePreferences.getBoolean(
-                    PredictiveBackPreferences.LEGACY_KEY_AOSP_HYPEROS_HAPTICS,
-                    false,
-                )
-                val unifiedHyperOsHaptics = if (!legacyAospHaptics) {
-                    storedHyperOsHaptics
-                } else {
-                    try {
-                        var migrated = false
-                        remotePreferences.edit(commit = true) {
-                            putBoolean(PredictiveBackPreferences.KEY_HYPEROS_HAPTICS, true)
-                            remove(PredictiveBackPreferences.LEGACY_KEY_AOSP_HYPEROS_HAPTICS)
-                            migrated = commit()
-                        }
-                        if (migrated) true else storedHyperOsHaptics
-                    } catch (_: Throwable) {
-                        storedHyperOsHaptics
-                    }
-                }
                 val flags = booleanArrayOf(
                     remotePreferences.getBoolean(
                         PredictiveBackPreferences.KEY_HYPEROS_INDICATOR,
                         PredictiveBackPreferences.DEFAULT_HYPEROS_INDICATOR,
                     ),
-                    unifiedHyperOsHaptics,
-                    remotePreferences.getBoolean(
-                        PredictiveBackPreferences.KEY_HYPEROS_HAPTICS_ENHANCED,
-                        PredictiveBackPreferences.DEFAULT_HYPEROS_HAPTICS_ENHANCED,
-                    ),
                     remotePreferences.getBoolean(
                         PredictiveBackPreferences.KEY_HYPEROS_SLIDE_ANIMATION,
                         PredictiveBackPreferences.DEFAULT_HYPEROS_SLIDE_ANIMATION,
-                    ),
-                    remotePreferences.getBoolean(
-                        PredictiveBackPreferences.KEY_ONEUI_CROSS_TASK_ANIMATION,
-                        PredictiveBackPreferences.DEFAULT_ONEUI_CROSS_TASK_ANIMATION,
                     ),
                     remotePreferences.getBoolean(
                         PredictiveBackPreferences.KEY_MODULE_LOGGING,
@@ -638,16 +585,10 @@ private fun PredictiveBackSettingsScreen(
             preferences = loaded.first
             hyperOsIndicator = loaded.second[0]
             confirmedHyperOsIndicator = loaded.second[0]
-            hyperOsHaptics = loaded.second[1]
-            confirmedHyperOsHaptics = loaded.second[1]
-            hyperOsHapticsEnhanced = loaded.second[2]
-            confirmedHyperOsHapticsEnhanced = loaded.second[2]
-            hyperOsSlideAnimation = loaded.second[3]
-            confirmedHyperOsSlideAnimation = loaded.second[3]
-            oneUiCrossTaskAnimation = loaded.second[4]
-            confirmedOneUiCrossTaskAnimation = loaded.second[4]
-            moduleLogging = loaded.second[5]
-            confirmedModuleLogging = loaded.second[5]
+            hyperOsSlideAnimation = loaded.second[1]
+            confirmedHyperOsSlideAnimation = loaded.second[1]
+            moduleLogging = loaded.second[2]
+            confirmedModuleLogging = loaded.second[2]
         } catch (_: Throwable) {
             configurationError = configurationErrorMessage
         } finally {
@@ -712,24 +653,6 @@ private fun PredictiveBackSettingsScreen(
             { confirmedHyperOsIndicator = it },
         )
     }
-    val persistHyperOsHaptics: (Boolean) -> Unit = { requestedEnabled ->
-        persistBooleanPreference(
-            PredictiveBackPreferences.KEY_HYPEROS_HAPTICS,
-            requestedEnabled,
-            { hyperOsHaptics = it },
-            { confirmedHyperOsHaptics },
-            { confirmedHyperOsHaptics = it },
-        )
-    }
-    val persistHyperOsHapticsEnhanced: (Boolean) -> Unit = { requestedEnabled ->
-        persistBooleanPreference(
-            PredictiveBackPreferences.KEY_HYPEROS_HAPTICS_ENHANCED,
-            requestedEnabled,
-            { hyperOsHapticsEnhanced = it },
-            { confirmedHyperOsHapticsEnhanced },
-            { confirmedHyperOsHapticsEnhanced = it },
-        )
-    }
     val persistHyperOsSlideAnimation: (Boolean) -> Unit = { requestedEnabled ->
         persistBooleanPreference(
             PredictiveBackPreferences.KEY_HYPEROS_SLIDE_ANIMATION,
@@ -737,15 +660,6 @@ private fun PredictiveBackSettingsScreen(
             { hyperOsSlideAnimation = it },
             { confirmedHyperOsSlideAnimation },
             { confirmedHyperOsSlideAnimation = it },
-        )
-    }
-    val persistOneUiCrossTaskAnimation: (Boolean) -> Unit = { requestedEnabled ->
-        persistBooleanPreference(
-            PredictiveBackPreferences.KEY_ONEUI_CROSS_TASK_ANIMATION,
-            requestedEnabled,
-            { oneUiCrossTaskAnimation = it },
-            { confirmedOneUiCrossTaskAnimation },
-            { confirmedOneUiCrossTaskAnimation = it },
         )
     }
     val persistModuleLogging: (Boolean) -> Unit = { requestedEnabled ->
@@ -835,16 +749,10 @@ private fun PredictiveBackSettingsScreen(
             item(key = "hyperos_switches") {
                 HyperOsSwitchGroupCard(
                     hyperOsIndicator = hyperOsIndicator,
-                    hyperOsHaptics = hyperOsHaptics,
-                    hyperOsHapticsEnhanced = hyperOsHapticsEnhanced,
                     hyperOsSlideAnimation = hyperOsSlideAnimation,
-                    oneUiCrossTaskAnimation = oneUiCrossTaskAnimation,
                     configurationEnabled = configurationEnabled,
                     onHyperOsIndicatorToggle = persistHyperOsIndicator,
-                    onHyperOsHapticsToggle = persistHyperOsHaptics,
-                    onHyperOsHapticsEnhancedToggle = persistHyperOsHapticsEnhanced,
                     onHyperOsSlideAnimationToggle = persistHyperOsSlideAnimation,
-                    onOneUiCrossTaskAnimationToggle = persistOneUiCrossTaskAnimation,
                     modifier = Modifier
                         .padding(horizontal = 12.dp)
                         .padding(bottom = 8.dp),
@@ -855,14 +763,6 @@ private fun PredictiveBackSettingsScreen(
                     moduleLogging = moduleLogging,
                     configurationEnabled = configurationEnabled,
                     onModuleLoggingToggle = persistModuleLogging,
-                    modifier = Modifier
-                        .padding(horizontal = 12.dp)
-                        .padding(bottom = 8.dp),
-                )
-            }
-            item(key = "contextual_search") {
-                ContextualSearchNavigationCard(
-                    onClick = onOpenContextualSearchSettings,
                     modifier = Modifier
                         .padding(horizontal = 12.dp)
                         .padding(bottom = 8.dp),
@@ -933,16 +833,10 @@ private fun cardAccentColor(severity: SettingsCardSeverity): Color = when (sever
 @Composable
 private fun HyperOsSwitchGroupCard(
     hyperOsIndicator: Boolean,
-    hyperOsHaptics: Boolean,
-    hyperOsHapticsEnhanced: Boolean,
     hyperOsSlideAnimation: Boolean,
-    oneUiCrossTaskAnimation: Boolean,
     configurationEnabled: Boolean,
     onHyperOsIndicatorToggle: (Boolean) -> Unit,
-    onHyperOsHapticsToggle: (Boolean) -> Unit,
-    onHyperOsHapticsEnhancedToggle: (Boolean) -> Unit,
     onHyperOsSlideAnimationToggle: (Boolean) -> Unit,
-    onOneUiCrossTaskAnimationToggle: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Card(
@@ -974,57 +868,12 @@ private fun HyperOsSwitchGroupCard(
                 onHyperOsIndicatorToggle(selectedIndex == 1)
             },
         )
-        WindowSpinnerPreference(
-            items = listOf(
-                DropdownItem(
-                    text = stringResource(R.string.haptic_feedback_effect_aosp),
-                    summary = stringResource(R.string.haptic_feedback_effect_aosp_summary),
-                ),
-                DropdownItem(
-                    text = stringResource(R.string.haptic_feedback_effect_hyperos),
-                    summary = stringResource(R.string.haptic_feedback_effect_hyperos_summary),
-                ),
-            ),
-            selectedIndex = if (hyperOsHaptics) 1 else 0,
-            title = stringResource(R.string.haptic_feedback_effect_title),
-            summary = stringResource(
-                if (hyperOsHaptics) {
-                    R.string.haptic_feedback_effect_hyperos_summary
-                } else {
-                    R.string.haptic_feedback_effect_aosp_summary
-                },
-            ),
-            enabled = configurationEnabled,
-            onSelectedIndexChange = { selectedIndex ->
-                onHyperOsHapticsToggle(selectedIndex == 1)
-            },
-        )
-        SwitchPreference(
-            title = stringResource(R.string.hyperos_haptics_enhanced_title),
-            summary = stringResource(
-                if (configurationEnabled && !hyperOsHaptics) {
-                    R.string.hyperos_haptics_enhanced_disabled_summary
-                } else {
-                    R.string.hyperos_haptics_enhanced_summary
-                },
-            ),
-            checked = hyperOsHapticsEnhanced,
-            enabled = configurationEnabled && hyperOsHaptics,
-            onCheckedChange = onHyperOsHapticsEnhancedToggle,
-        )
         SwitchPreference(
             title = stringResource(R.string.hyperos_slide_animation_title),
             summary = stringResource(R.string.hyperos_slide_animation_summary),
             checked = hyperOsSlideAnimation,
             enabled = configurationEnabled,
             onCheckedChange = onHyperOsSlideAnimationToggle,
-        )
-        SwitchPreference(
-            title = stringResource(R.string.oneui_cross_task_animation_title),
-            summary = stringResource(R.string.oneui_cross_task_animation_summary),
-            checked = oneUiCrossTaskAnimation,
-            enabled = configurationEnabled,
-            onCheckedChange = onOneUiCrossTaskAnimationToggle,
         )
     }
 }
@@ -1080,23 +929,6 @@ private fun ModuleLoggingCard(
             checked = moduleLogging,
             enabled = configurationEnabled,
             onCheckedChange = onModuleLoggingToggle,
-        )
-    }
-}
-
-@Composable
-private fun ContextualSearchNavigationCard(
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        insideMargin = PaddingValues(0.dp),
-    ) {
-        ArrowPreference(
-            title = stringResource(R.string.contextual_search_entry_title),
-            summary = stringResource(R.string.contextual_search_entry_summary),
-            onClick = onClick,
         )
     }
 }

@@ -25,8 +25,5 @@
         <activity
             android:name=".activity.GestureTriggerSettingsActivity"
             android:exported="false" />
-        <activity
-            android:name=".activity.ContextualSearchSettingsActivity"
-            android:exported="false" />
     </application>
 </manifest>

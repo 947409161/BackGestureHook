@@ -46,11 +46,6 @@ final class SystemServerAndroid17Impl extends SystemServerPlatformImpl {
     }
 
     @Override
-    boolean nativeLauncherOwnsContextualSearchLongPress() {
-        return true;
-    }
-
-    @Override
     Method calculateTransitionInfoMethod(Class<?> transitionClass)
             throws NoSuchMethodException {
         Method method = findCalculateTransitionInfo(transitionClass);

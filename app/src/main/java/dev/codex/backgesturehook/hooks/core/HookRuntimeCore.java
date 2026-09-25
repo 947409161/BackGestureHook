@@ -108,7 +108,6 @@ public abstract class HookRuntimeCore extends XposedModule {
 
     protected abstract boolean isHyperOsSlideAnimationEnabled();
 
-    protected abstract boolean isOneUiCrossTaskAnimationEnabled();
 
     protected abstract Method requireExactDeclaredMethod(
             Class<?> owner, String methodName, String returnTypeName,
@@ -257,8 +256,6 @@ public abstract class HookRuntimeCore extends XposedModule {
             "com.android.wm.shell.back.CrossActivityBackAnimation";
     protected static final String DEFAULT_CROSS_ACTIVITY_BACK_ANIMATION =
             "com.android.wm.shell.back.DefaultCrossActivityBackAnimation";
-    protected static final String CROSS_TASK_BACK_ANIMATION =
-            "com.android.wm.shell.back.CrossTaskBackAnimation";
     protected static final String BACK_ANIMATION_BACKGROUND =
             "com.android.wm.shell.back.BackAnimationBackground";
     // The hard-coded color CrossTaskBackAnimation passes to ensureBackground (0x43433A);
@@ -308,8 +305,6 @@ public abstract class HookRuntimeCore extends XposedModule {
             NativeHookStatusProtocol.ACTION_SYSTEMUI_STATE;
     protected static final String MODULE_MIUI_HOME_INPUT_ARBITER_QUERY =
             "dev.codex.backgesturehook.action.MIUI_HOME_INPUT_ARBITER_QUERY";
-    protected static final String MODULE_CONTEXTUAL_SEARCH_TRIGGERED =
-            "dev.codex.backgesturehook.action.CONTEXTUAL_SEARCH_TRIGGERED";
     protected static final String MODULE_RUNTIME_STATUS_QUERY =
             NativeHookStatusProtocol.ACTION_QUERY;
     protected static final String MODULE_RUNTIME_STATUS_REPLY =
@@ -374,8 +369,6 @@ public abstract class HookRuntimeCore extends XposedModule {
             "input_arbiter_generation";
     protected static final String EXTRA_LAUNCHER_STATE_OWNER_EPOCH =
             "launcher_state_owner_epoch";
-    protected static final String EXTRA_CONTEXTUAL_SEARCH_ENABLED =
-            "contextual_search_enabled";
     protected static final String EXTRA_INPUT_ACCEPTED = "input_accepted";
     protected static final String EXTRA_INPUT_EVENT_ID = "input_event_id";
     protected static final String EXTRA_INPUT_DOWN_TIME = "input_down_time";
