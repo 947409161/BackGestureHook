@@ -56,13 +56,6 @@
     <string name="predictive_back_loading_apps">Loading apps…</string>
     <string name="predictive_back_no_apps">No matching apps</string>
     <string name="predictive_back_unavailable_app">Saved selection; app is currently unavailable</string>
-    <string name="back_indicator_style_title">Back indicator style</string>
-    <string name="back_indicator_style_aosp">AOSP</string>
-    <string name="back_indicator_style_aosp_summary">AOSP back indicator</string>
-    <string name="back_indicator_style_hyperos">HyperOS</string>
-    <string name="back_indicator_style_hyperos_summary">HyperOS back indicator</string>
-    <string name="hyperos_slide_animation_title">HyperOS slide-back animation</string>
-    <string name="hyperos_slide_animation_summary">Full-width slide instead of the AOSP predictive back</string>
     <string name="module_logging_title">Detailed module logs</string>
     <string name="module_logging_summary">Keep informational logs enabled; warnings and errors are always kept</string>
     <string name="gesture_trigger_title">Side trigger area</string>

@@ -77,7 +77,6 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
-import top.yukonga.miuix.kmp.basic.DropdownItem
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
@@ -91,7 +90,6 @@ import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Close
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
-import top.yukonga.miuix.kmp.preference.WindowSpinnerPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.darkColorScheme
 import top.yukonga.miuix.kmp.theme.lightColorScheme
@@ -528,10 +526,6 @@ private fun PredictiveBackSettingsScreen(
     var configurationLoading by remember { mutableStateOf(true) }
     var configurationError by remember { mutableStateOf<String?>(null) }
     var saveError by remember { mutableStateOf<String?>(null) }
-    var hyperOsIndicator by remember { mutableStateOf(false) }
-    var confirmedHyperOsIndicator by remember { mutableStateOf(false) }
-    var hyperOsSlideAnimation by remember { mutableStateOf(false) }
-    var confirmedHyperOsSlideAnimation by remember { mutableStateOf(false) }
     var moduleLogging by remember { mutableStateOf(true) }
     var confirmedModuleLogging by remember { mutableStateOf(true) }
     val writeMutex = remember(preferences) { Mutex() }
@@ -547,10 +541,6 @@ private fun PredictiveBackSettingsScreen(
         preferences = null
         configurationError = null
         saveError = null
-        hyperOsIndicator = false
-        confirmedHyperOsIndicator = false
-        hyperOsSlideAnimation = false
-        confirmedHyperOsSlideAnimation = false
         moduleLogging = PredictiveBackPreferences.DEFAULT_MODULE_LOGGING
         confirmedModuleLogging = PredictiveBackPreferences.DEFAULT_MODULE_LOGGING
         if (!serviceStateObserved) {
@@ -568,14 +558,6 @@ private fun PredictiveBackSettingsScreen(
                     service.getRemotePreferences(PredictiveBackPreferences.GROUP)
                 val flags = booleanArrayOf(
                     remotePreferences.getBoolean(
-                        PredictiveBackPreferences.KEY_HYPEROS_INDICATOR,
-                        PredictiveBackPreferences.DEFAULT_HYPEROS_INDICATOR,
-                    ),
-                    remotePreferences.getBoolean(
-                        PredictiveBackPreferences.KEY_HYPEROS_SLIDE_ANIMATION,
-                        PredictiveBackPreferences.DEFAULT_HYPEROS_SLIDE_ANIMATION,
-                    ),
-                    remotePreferences.getBoolean(
                         PredictiveBackPreferences.KEY_MODULE_LOGGING,
                         PredictiveBackPreferences.DEFAULT_MODULE_LOGGING,
                     ),
@@ -583,12 +565,8 @@ private fun PredictiveBackSettingsScreen(
                 remotePreferences to flags
             }
             preferences = loaded.first
-            hyperOsIndicator = loaded.second[0]
-            confirmedHyperOsIndicator = loaded.second[0]
-            hyperOsSlideAnimation = loaded.second[1]
-            confirmedHyperOsSlideAnimation = loaded.second[1]
-            moduleLogging = loaded.second[2]
-            confirmedModuleLogging = loaded.second[2]
+            moduleLogging = loaded.second[0]
+            confirmedModuleLogging = loaded.second[0]
         } catch (_: Throwable) {
             configurationError = configurationErrorMessage
         } finally {
@@ -643,24 +621,6 @@ private fun PredictiveBackSettingsScreen(
                 }
             }
         }
-    }
-    val persistHyperOsIndicator: (Boolean) -> Unit = { requestedEnabled ->
-        persistBooleanPreference(
-            PredictiveBackPreferences.KEY_HYPEROS_INDICATOR,
-            requestedEnabled,
-            { hyperOsIndicator = it },
-            { confirmedHyperOsIndicator },
-            { confirmedHyperOsIndicator = it },
-        )
-    }
-    val persistHyperOsSlideAnimation: (Boolean) -> Unit = { requestedEnabled ->
-        persistBooleanPreference(
-            PredictiveBackPreferences.KEY_HYPEROS_SLIDE_ANIMATION,
-            requestedEnabled,
-            { hyperOsSlideAnimation = it },
-            { confirmedHyperOsSlideAnimation },
-            { confirmedHyperOsSlideAnimation = it },
-        )
     }
     val persistModuleLogging: (Boolean) -> Unit = { requestedEnabled ->
         persistBooleanPreference(
@@ -746,18 +706,6 @@ private fun PredictiveBackSettingsScreen(
                         .padding(bottom = 8.dp),
                 )
             }
-            item(key = "hyperos_switches") {
-                HyperOsSwitchGroupCard(
-                    hyperOsIndicator = hyperOsIndicator,
-                    hyperOsSlideAnimation = hyperOsSlideAnimation,
-                    configurationEnabled = configurationEnabled,
-                    onHyperOsIndicatorToggle = persistHyperOsIndicator,
-                    onHyperOsSlideAnimationToggle = persistHyperOsSlideAnimation,
-                    modifier = Modifier
-                        .padding(horizontal = 12.dp)
-                        .padding(bottom = 8.dp),
-                )
-            }
             item(key = "module_logging") {
                 ModuleLoggingCard(
                     moduleLogging = moduleLogging,
@@ -828,54 +776,6 @@ private fun StatusCard(
 private fun cardAccentColor(severity: SettingsCardSeverity): Color = when (severity) {
     SettingsCardSeverity.Info -> MiuixTheme.colorScheme.primary
     SettingsCardSeverity.Error -> MiuixTheme.colorScheme.error
-}
-
-@Composable
-private fun HyperOsSwitchGroupCard(
-    hyperOsIndicator: Boolean,
-    hyperOsSlideAnimation: Boolean,
-    configurationEnabled: Boolean,
-    onHyperOsIndicatorToggle: (Boolean) -> Unit,
-    onHyperOsSlideAnimationToggle: (Boolean) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        insideMargin = PaddingValues(0.dp),
-    ) {
-        WindowSpinnerPreference(
-            items = listOf(
-                DropdownItem(
-                    text = stringResource(R.string.back_indicator_style_aosp),
-                    summary = stringResource(R.string.back_indicator_style_aosp_summary),
-                ),
-                DropdownItem(
-                    text = stringResource(R.string.back_indicator_style_hyperos),
-                    summary = stringResource(R.string.back_indicator_style_hyperos_summary),
-                ),
-            ),
-            selectedIndex = if (hyperOsIndicator) 1 else 0,
-            title = stringResource(R.string.back_indicator_style_title),
-            summary = stringResource(
-                if (hyperOsIndicator) {
-                    R.string.back_indicator_style_hyperos_summary
-                } else {
-                    R.string.back_indicator_style_aosp_summary
-                },
-            ),
-            enabled = configurationEnabled,
-            onSelectedIndexChange = { selectedIndex ->
-                onHyperOsIndicatorToggle(selectedIndex == 1)
-            },
-        )
-        SwitchPreference(
-            title = stringResource(R.string.hyperos_slide_animation_title),
-            summary = stringResource(R.string.hyperos_slide_animation_summary),
-            checked = hyperOsSlideAnimation,
-            enabled = configurationEnabled,
-            onCheckedChange = onHyperOsSlideAnimationToggle,
-        )
-    }
 }
 
 @Composable

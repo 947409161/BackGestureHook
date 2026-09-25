@@ -2328,8 +2328,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             hookBackFinishOpenAtomicTransfer(classLoader);
             hookFreeformCrossActivityScrimCreation();
             hookCrossActivitySlideAnimation(classLoader,
-                    true, true, true, true, true, true);
-            hookCrossTaskBackground(classLoader);
+                    false, false, false, false, false, true);
             moduleLog(Log.INFO, TAG, "Hooked Shell BackAnimationController AOSP path");
         } catch (Throwable throwable) {
             moduleLog(Log.ERROR, TAG, "Failed to hook Shell back animation", throwable);

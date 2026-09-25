@@ -106,9 +106,6 @@ public abstract class HookRuntimeCore extends XposedModule {
     protected abstract boolean isCurrentHeadlessNavBarLifecycle(
             Object edgeBackGestureHandler);
 
-    protected abstract boolean isHyperOsSlideAnimationEnabled();
-
-
     protected abstract Method requireExactDeclaredMethod(
             Class<?> owner, String methodName, String returnTypeName,
             String... parameterTypeNames) throws NoSuchMethodException;

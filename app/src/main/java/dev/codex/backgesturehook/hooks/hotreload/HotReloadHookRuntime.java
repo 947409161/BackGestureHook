@@ -546,22 +546,9 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                     "systemui_back_color_root_scrim_creation")) {
                 hookFreeformCrossActivityScrimCreation();
             }
-            if (!oldHookIds.contains("systemui_back_slide_start")
-                    || !oldHookIds.contains("systemui_back_slide_progress")
-                    || !oldHookIds.contains("systemui_back_slide_post_commit")
-                    || !oldHookIds.contains("systemui_back_slide_duration")
-                    || !oldHookIds.contains("systemui_back_slide_finish")
-                    || !oldHookIds.contains("systemui_back_color_root_apply")) {
+            if (!oldHookIds.contains("systemui_back_color_root_apply")) {
                 hookCrossActivitySlideAnimation(hotReloadClassLoader,
-                        !oldHookIds.contains("systemui_back_slide_start"),
-                        !oldHookIds.contains("systemui_back_slide_progress"),
-                        !oldHookIds.contains("systemui_back_slide_post_commit"),
-                        !oldHookIds.contains("systemui_back_slide_duration"),
-                        !oldHookIds.contains("systemui_back_slide_finish"),
-                        !oldHookIds.contains("systemui_back_color_root_apply"));
-            }
-            if (!oldHookIds.contains("systemui_cross_task_background")) {
-                hookCrossTaskBackground(hotReloadClassLoader);
+                        false, false, false, false, false, true);
             }
             if (!backCommitCompositionHookReady) {
                 hookBackCommitComposition(hotReloadClassLoader);
@@ -898,22 +885,10 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                 return this::trackMiuiOpenCloseMerge;
             case "systemui_back_send_event_guard":
                 return this::guardDuplicateBackEvent;
-            case "systemui_back_slide_start":
-                return this::onCrossActivitySlideStart;
-            case "systemui_back_slide_progress":
-                return this::onCrossActivitySlideProgressRegistration;
-            case "systemui_back_slide_post_commit":
-                return this::onCrossActivitySlidePostCommit;
-            case "systemui_back_slide_duration":
-                return this::onCrossActivitySlideDuration;
-            case "systemui_back_slide_finish":
-                return this::onCrossActivitySlideFinish;
             case "systemui_back_color_root_apply":
                 return this::onCrossActivityColorRootApply;
             case "systemui_back_color_root_scrim_creation":
                 return this::keepFreeformScrimHiddenUntilFirstApply;
-            case "systemui_cross_task_background":
-                return this::tintCrossTaskBackground;
             case "systemui_back_prepare_reparent":
                 return this::correctPredictiveBackPrepareReparent;
             case "systemui_back_prepared_target_arrival":

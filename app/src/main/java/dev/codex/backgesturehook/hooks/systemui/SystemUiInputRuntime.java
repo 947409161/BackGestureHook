@@ -90,8 +90,6 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
     protected final Set<Object> contextualSearchNavigationBars =
             Collections.newSetFromMap(new WeakHashMap<>());
 
-    protected volatile SharedPreferences hyperOsIndicatorPreferences;
-    protected volatile boolean hyperOsIndicatorPreferencesFailureLogged;
     protected volatile MiuiHapticFeedbackHelper hyperOsBackHapticHelper;
     protected volatile SharedPreferences gestureTriggerPreferences;
     protected volatile boolean gestureTriggerPreferencesFailureLogged;
@@ -591,9 +589,8 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
     }
 
     protected boolean isHyperOsIndicatorEnabled() {
-        return readHyperOsBooleanPreference(
-                PredictiveBackPreferences.KEY_HYPEROS_INDICATOR,
-                PredictiveBackPreferences.DEFAULT_HYPEROS_INDICATOR);
+        // Retired setting: older stored preferences must not enable a custom indicator.
+        return false;
     }
 
     protected boolean isHyperOsHapticsEnabled() {
@@ -605,38 +602,9 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
         return false;
     }
 
-    @Override
     protected boolean isHyperOsSlideAnimationEnabled() {
-        return readHyperOsBooleanPreference(
-                PredictiveBackPreferences.KEY_HYPEROS_SLIDE_ANIMATION,
-                PredictiveBackPreferences.DEFAULT_HYPEROS_SLIDE_ANIMATION);
-    }
-
-    protected boolean readHyperOsBooleanPreference(String key, boolean defaultValue) {
-        try {
-            SharedPreferences preferences = hyperOsIndicatorPreferences;
-            if (preferences == null) {
-                synchronized (this) {
-                    preferences = hyperOsIndicatorPreferences;
-                    if (preferences == null) {
-                        preferences = getRemotePreferences(
-                                PredictiveBackPreferences.GROUP);
-                        hyperOsIndicatorPreferences = preferences;
-                    }
-                }
-            }
-            boolean enabled = preferences.getBoolean(key, defaultValue);
-            hyperOsIndicatorPreferencesFailureLogged = false;
-            return enabled;
-        } catch (Throwable throwable) {
-            if (!hyperOsIndicatorPreferencesFailureLogged) {
-                hyperOsIndicatorPreferencesFailureLogged = true;
-                moduleLog(Log.ERROR, TAG, "HyperOS indicator preference unavailable"
-                        + ", policy=failClosedToAospPanel"
-                        + ", key=" + key, throwable);
-            }
-            return false;
-        }
+        // The custom full-width slide path is retired. Ignore preferences from older builds.
+        return false;
     }
 
     /**
