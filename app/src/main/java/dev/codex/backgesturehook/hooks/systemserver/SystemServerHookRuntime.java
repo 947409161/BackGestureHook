@@ -67,7 +67,21 @@ public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
 
     protected void installSystemServerHooks(ClassLoader classLoader) {
         if (isFlymeDevice()) {
-            moduleLog(Log.INFO, TAG, "Skipped system_server hooks on FlymeOS");
+            try {
+                ClassLoader serverClassLoader = findSystemServerClassLoader(classLoader);
+                if (serverClassLoader == null) {
+                    moduleLog(Log.ERROR, TAG, "Unable to find system_server classloader for "
+                            + BACK_NAVIGATION_CONTROLLER + " on FlymeOS");
+                    return;
+                }
+                hookPredictiveBackOptInMetadata(serverClassLoader);
+                moduleLog(Log.INFO, TAG,
+                        "Installed selected-app predictive-back opt-in only on FlymeOS");
+            } catch (Throwable throwable) {
+                moduleLog(Log.ERROR, TAG,
+                        "Failed to install selected-app predictive-back opt-in on FlymeOS",
+                        throwable);
+            }
             return;
         }
         try {

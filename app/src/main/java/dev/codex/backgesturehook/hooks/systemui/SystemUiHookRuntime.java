@@ -28,6 +28,7 @@ import android.util.Log;
 import android.view.Display;
 import android.view.HapticFeedbackConstants;
 import android.view.InsetsFrameProvider;
+import android.view.MotionEvent;
 import android.view.SurfaceControl;
 import android.view.View;
 import android.view.WindowInsets;
@@ -105,9 +106,10 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         try {
             if (isFlymeDevice()) {
                 hookFlymeShellBackAnimation(classLoader);
+                hookFlymeGestureTriggerArea(classLoader);
                 ensureFlymeRuntimeStatusReceiver(classLoader, "coldLoad");
                 moduleLog(Log.INFO, TAG,
-                        "Installed Flyme predictive-back hooks without replacing EdgeBackView"
+                        "Installed Flyme predictive-back hooks while preserving EdgeBackView"
                                 + ", build=" + BUILD_MARK
                                 + ", hooks=" + hookHandles.size());
                 return;
@@ -142,6 +144,41 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                     + BUILD_MARK + ", hooks=" + hookHandles.size());
         } catch (Throwable throwable) {
             moduleLog(Log.ERROR, TAG, "Failed to install SystemUI hooks", throwable);
+        }
+    }
+
+    protected void hookFlymeGestureTriggerArea(ClassLoader classLoader) {
+        try {
+            Class<?> handlerClass = Class.forName(
+                    EDGE_BACK_GESTURE_HANDLER, false, classLoader);
+            Method target = null;
+            for (Method method : handlerClass.getDeclaredMethods()) {
+                if (!"onMotionEvent".equals(method.getName())
+                        || method.getParameterCount() != 1
+                        || method.getParameterTypes()[0] != MotionEvent.class
+                        || method.getReturnType() != void.class) {
+                    continue;
+                }
+                if (target != null) {
+                    throw new NoSuchMethodException(
+                            "Ambiguous EdgeBackGestureHandler.onMotionEvent(MotionEvent)");
+                }
+                target = method;
+            }
+            if (target == null) {
+                throw new NoSuchMethodException(
+                        EDGE_BACK_GESTURE_HANDLER + ".onMotionEvent(MotionEvent)");
+            }
+            target.setAccessible(true);
+            recordHookHandle(hook(target)
+                    .setId("systemui_flyme_gesture_trigger_area")
+                    .intercept(this::filterFlymeGestureTriggerArea));
+            moduleLog(Log.INFO, TAG,
+                    "Hooked Flyme OEM edge callback for configured vertical trigger area");
+        } catch (Throwable throwable) {
+            moduleLog(Log.WARN, TAG,
+                    "Flyme OEM edge trigger-area hook unavailable; preserving native area",
+                    throwable);
         }
     }
 

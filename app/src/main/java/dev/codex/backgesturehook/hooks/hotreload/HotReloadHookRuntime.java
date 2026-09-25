@@ -284,6 +284,15 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                         // until an executable exposes the SystemUI classes.
                     }
                 }
+                if (isFlymeDevice() && oldServerHook
+                        && !"server_predictive_opt_in_metadata".equals(oldHookId)
+                        && !"predictive_opt_in_system_server".equals(oldHookId)) {
+                    oldHandle.unhook();
+                    moduleLog(Log.INFO, TAG,
+                            "Removed non-opt-in system_server hook on FlymeOS: "
+                                    + oldHookId);
+                    continue;
+                }
                 boolean freeformRoleNormalizer =
                         "server_freeform_prepare_role_normalization".equals(oldHookId);
                 if (freeformRoleNormalizer) {
@@ -356,6 +365,23 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                 || hadServerHook);
         ClassLoader preferredServerClassLoader = oldSystemServerClassLoader != null
                 ? oldSystemServerClassLoader : hotReloadClassLoader;
+        boolean shouldRestoreFlymePredictiveOptIn = isFlymeDevice()
+                && (param.isSystemServer() || "system".equals(processName) || hadServerHook);
+        if (shouldRestoreFlymePredictiveOptIn && replaced == 0) {
+            installSystemServerHooks(preferredServerClassLoader);
+        } else if (shouldRestoreFlymePredictiveOptIn
+                && !oldHookIds.contains("server_predictive_opt_in_metadata")
+                && !oldHookIds.contains("predictive_opt_in_system_server")) {
+            ClassLoader serverClassLoader = findSystemServerClassLoader(
+                    preferredServerClassLoader);
+            if (serverClassLoader != null) {
+                hookPredictiveBackOptInMetadata(serverClassLoader);
+            } else {
+                moduleLog(Log.ERROR, TAG,
+                        "Unable to restore Flyme predictive opt-in after hot reload: "
+                                + "system_server classloader unavailable");
+            }
+        }
         if (shouldInstallServerHooks && replaced == 0) {
             installSystemServerHooks(preferredServerClassLoader);
         } else if (shouldInstallServerHooks) {
@@ -979,6 +1005,8 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                 return this::transferReturnHomeFinishIntoCloseStart;
             case "systemui_edge_back_setBackAnimation":
                 return this::onEdgeBackSetBackAnimation;
+            case "systemui_flyme_gesture_trigger_area":
+                return this::filterFlymeGestureTriggerArea;
             case "systemui_edge_back_updateIsEnabled":
                 return this::onEdgeBackUpdateIsEnabled;
             case "systemui_edge_back_onNavigationModeChanged":
@@ -1300,6 +1328,10 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
     protected void restoreFlymeSystemUiHotReloadHooks(ClassLoader classLoader,
                                                       Set<String> oldHookIds) {
         flymeShellBackAnimationHooksReady = false;
+        flymeSuppressedGestureStreams.clear();
+        if (!oldHookIds.contains("systemui_flyme_gesture_trigger_area")) {
+            hookFlymeGestureTriggerArea(classLoader);
+        }
         Class<?> controllerClass = null;
         if (!oldHookIds.contains("shell_back_onBackAnimationFinished")
                 || !oldHookIds.contains("shell_back_finishBackAnimation")
@@ -1369,8 +1401,10 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
     public void onSystemServerStarting(XposedModuleInterface.SystemServerStartingParam param) {
         processName = "system";
         if (isFlymeDevice()) {
-            moduleLog(Log.INFO, TAG, "Skipped system_server hooks on FlymeOS, build="
-                    + BUILD_MARK);
+            moduleLog(Log.INFO, TAG,
+                    "Installing selected-app predictive-back opt-in only on FlymeOS, build="
+                            + BUILD_MARK);
+            installSystemServerHooks(param.getClassLoader());
             return;
         }
         moduleLog(Log.INFO, TAG, "System server starting, build=" + BUILD_MARK

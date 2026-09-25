@@ -95,6 +95,8 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
     protected volatile MiuiHapticFeedbackHelper hyperOsBackHapticHelper;
     protected volatile SharedPreferences gestureTriggerPreferences;
     protected volatile boolean gestureTriggerPreferencesFailureLogged;
+    protected final Map<Object, Boolean> flymeSuppressedGestureStreams =
+            Collections.synchronizedMap(new WeakHashMap<>());
     protected volatile SharedPreferences contextualSearchPreferences;
     protected volatile boolean contextualSearchPreferencesFailureLogged;
     protected volatile boolean contextualSearchServiceUnavailableLogged;
@@ -1945,6 +1947,84 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 moduleLog(Log.WARN, TAG, "Failed to inspect bottom gesture region", throwable);
                 return true;
             }
+        }
+    }
+
+    protected Object filterFlymeGestureTriggerArea(XposedInterface.Chain chain)
+            throws Throwable {
+        Object handler = chain.getThisObject();
+        Object argument = chain.getArg(0);
+        if (!(argument instanceof MotionEvent)) {
+            return chain.proceed();
+        }
+        MotionEvent event = (MotionEvent) argument;
+        int action = event.getActionMasked();
+        if (action == MotionEvent.ACTION_DOWN) {
+            boolean inside = isWithinFlymeConfiguredGestureTriggerArea(handler, event);
+            if (!inside) {
+                flymeSuppressedGestureStreams.put(handler, Boolean.TRUE);
+                moduleLog(Log.INFO, TAG,
+                        "Flyme OEM edge stream ignored outside configured trigger area"
+                                + ", y=" + event.getRawY());
+                return null;
+            }
+            flymeSuppressedGestureStreams.remove(handler);
+        } else if (Boolean.TRUE.equals(flymeSuppressedGestureStreams.get(handler))) {
+            if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+                flymeSuppressedGestureStreams.remove(handler);
+            }
+            return null;
+        }
+        return chain.proceed();
+    }
+
+    private boolean isWithinFlymeConfiguredGestureTriggerArea(
+            Object handler, MotionEvent event) {
+        try {
+            Context context = (Context) readField(handler, "mContext");
+            if (context == null) {
+                return true;
+            }
+            SharedPreferences preferences = gestureTriggerPreferences;
+            if (preferences == null) {
+                synchronized (this) {
+                    preferences = gestureTriggerPreferences;
+                    if (preferences == null) {
+                        preferences = getRemotePreferences(PredictiveBackPreferences.GROUP);
+                        gestureTriggerPreferences = preferences;
+                    }
+                }
+            }
+            int heightPercent = preferences.getInt(
+                    PredictiveBackPreferences.KEY_GESTURE_TRIGGER_HEIGHT_PERCENT,
+                    PredictiveBackPreferences.DEFAULT_GESTURE_TRIGGER_HEIGHT_PERCENT);
+            int positionPercent = preferences.getInt(
+                    PredictiveBackPreferences.KEY_GESTURE_TRIGGER_POSITION_PERCENT,
+                    PredictiveBackPreferences.DEFAULT_GESTURE_TRIGGER_POSITION_PERCENT);
+            if (heightPercent < PredictiveBackPreferences.MIN_GESTURE_TRIGGER_HEIGHT_PERCENT
+                    || heightPercent > PredictiveBackPreferences.MAX_GESTURE_TRIGGER_HEIGHT_PERCENT
+                    || positionPercent < PredictiveBackPreferences.MIN_GESTURE_TRIGGER_POSITION_PERCENT
+                    || positionPercent > PredictiveBackPreferences.MAX_GESTURE_TRIGGER_POSITION_PERCENT) {
+                return true;
+            }
+            if (heightPercent == PredictiveBackPreferences.DEFAULT_GESTURE_TRIGGER_HEIGHT_PERCENT
+                    && positionPercent
+                    == PredictiveBackPreferences.DEFAULT_GESTURE_TRIGGER_POSITION_PERCENT) {
+                return true;
+            }
+            float displayHeight = context.getResources().getDisplayMetrics().heightPixels;
+            if (displayHeight <= 0.0f) {
+                return true;
+            }
+            float configuredHeight = displayHeight * heightPercent / 100.0f;
+            float top = (displayHeight - configuredHeight) * positionPercent / 100.0f;
+            float y = event.getRawY();
+            return y >= top && y < top + configuredHeight;
+        } catch (Throwable throwable) {
+            moduleLog(Log.WARN, TAG,
+                    "Flyme gesture trigger configuration unavailable; preserving OEM area",
+                    throwable);
+            return true;
         }
     }
 
