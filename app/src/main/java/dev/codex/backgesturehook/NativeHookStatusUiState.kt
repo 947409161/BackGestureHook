@@ -12,6 +12,7 @@ enum class NativeHookStatusKind {
     LegacyNotReady,
     NativeNoResponse,
     ProfileRejected,
+    FlymeNotReady,
     NoResponse,
     LsPosedUnavailable,
 }
@@ -30,7 +31,12 @@ internal fun classifyNativeHookStatus(
     drawerStateReady: Boolean,
     overviewStateReady: Boolean,
     editingStateReady: Boolean,
+    flymeMode: Boolean = false,
+    flymeReady: Boolean = false,
 ): NativeHookStatusKind = when {
+    flymeMode && !nativeResponse -> NativeHookStatusKind.NoResponse
+    flymeMode && flymeReady && systemUiReady -> NativeHookStatusKind.Ready
+    flymeMode -> NativeHookStatusKind.FlymeNotReady
     !nativeResponse && systemUiReady -> NativeHookStatusKind.WaitingForNative
     !systemUiReady -> NativeHookStatusKind.SystemUiNotReady
     !nativeResponse -> NativeHookStatusKind.WaitingForNative
@@ -48,6 +54,8 @@ data class NativeHookStatusUiState(
     val kind: NativeHookStatusKind,
     val profileDynamic: Boolean = false,
     val legacyMode: Boolean = false,
+    val flymeMode: Boolean = false,
+    val flymeReady: Boolean = false,
     val profileResolved: Boolean = false,
     val nativeReady: Boolean = false,
     val systemUiReady: Boolean = false,
@@ -77,9 +85,13 @@ data class NativeHookStatusUiState(
             editingStateReady
 
     companion object {
-        fun checking(legacyMode: Boolean = false) = NativeHookStatusUiState(
+        fun checking(
+            legacyMode: Boolean = false,
+            flymeMode: Boolean = false,
+        ) = NativeHookStatusUiState(
             kind = NativeHookStatusKind.Checking,
             legacyMode = legacyMode,
+            flymeMode = flymeMode,
         )
 
         fun noResponse() = NativeHookStatusUiState(NativeHookStatusKind.NoResponse)
@@ -99,6 +111,14 @@ data class NativeHookStatusUiState(
             )
             val legacyReady = intent.getBooleanExtra(
                 NativeHookStatusProtocol.EXTRA_LEGACY_READY,
+                false,
+            )
+            val flymeMode = intent.getBooleanExtra(
+                NativeHookStatusProtocol.EXTRA_FLYME_MODE,
+                false,
+            )
+            val flymeReady = intent.getBooleanExtra(
+                NativeHookStatusProtocol.EXTRA_FLYME_READY,
                 false,
             )
             val profileResolved = intent.getBooleanExtra(
@@ -175,11 +195,15 @@ data class NativeHookStatusUiState(
                 drawerStateReady = drawerStateReady,
                 overviewStateReady = overviewStateReady,
                 editingStateReady = editingStateReady,
+                flymeMode = flymeMode,
+                flymeReady = flymeReady,
             )
             return NativeHookStatusUiState(
                 kind = kind,
                 profileDynamic = profileDynamic,
                 legacyMode = legacyMode,
+                flymeMode = flymeMode,
+                flymeReady = flymeReady,
                 profileResolved = profileResolved,
                 nativeReady = nativeReady,
                 systemUiReady = systemUiReady,

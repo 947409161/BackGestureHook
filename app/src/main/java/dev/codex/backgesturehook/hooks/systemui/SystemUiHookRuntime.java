@@ -69,6 +69,7 @@ import org.luckypray.dexkit.result.MethodData;
 public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
 
     private volatile SystemUiPlatformImpl systemUiPlatformImpl;
+    private volatile boolean flymeShellBackAnimationHooksReady;
     private final ThreadLocal<Object> flymeBackAnimationAdapterOverride = new ThreadLocal<>();
     private volatile SharedPreferences contextualSearchStatePreferences;
     private volatile Context contextualSearchStateContext;
@@ -104,6 +105,14 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         try {
             if (isFlymeDevice()) {
                 hookFlymeShellBackAnimation(classLoader);
+                Context systemUiContext = resolveCurrentApplicationContext(classLoader);
+                if (systemUiContext != null) {
+                    ensureMiuiOverviewStateReceiver(systemUiContext);
+                } else {
+                    moduleLog(Log.WARN, TAG,
+                            "SystemUI application context is not available for Flyme "
+                                    + "runtime status receiver");
+                }
                 moduleLog(Log.INFO, TAG,
                         "Installed Flyme predictive-back hooks without replacing EdgeBackView"
                                 + ", build=" + BUILD_MARK
@@ -6397,9 +6406,11 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             hookBackNavigationInfoReceived(controllerClass);
             hookFlymeAnimatorDispatch(controllerClass);
             hookFlymeBackAnimationAdapter(controllerClass, classLoader, true, true);
+            flymeShellBackAnimationHooksReady = true;
             moduleLog(Log.INFO, TAG,
                     "Hooked Flyme Shell predictive-back adapter and animator dispatch");
         } catch (Throwable throwable) {
+            flymeShellBackAnimationHooksReady = false;
             moduleLog(Log.ERROR, TAG, "Failed to hook Flyme Shell back animation", throwable);
         }
     }
@@ -6871,16 +6882,24 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             }
         };
         try {
-            IntentFilter filter = new IntentFilter(MODULE_MIUI_OVERVIEW_STATE_CHANGE);
-            filter.addAction(MODULE_MIUI_HOME_INPUT_ARBITER_QUERY);
-            filter.addAction(MODULE_CONTEXTUAL_SEARCH_TRIGGERED);
-            filter.addAction(MODULE_RUNTIME_STATUS_QUERY);
-            filter.addAction(MODULE_RUNTIME_STATUS_REPLY);
+            IntentFilter filter;
+            if (isFlymeDevice()) {
+                filter = new IntentFilter(MODULE_RUNTIME_STATUS_QUERY);
+            } else {
+                filter = new IntentFilter(MODULE_MIUI_OVERVIEW_STATE_CHANGE);
+                filter.addAction(MODULE_MIUI_HOME_INPUT_ARBITER_QUERY);
+                filter.addAction(MODULE_CONTEXTUAL_SEARCH_TRIGGERED);
+                filter.addAction(MODULE_RUNTIME_STATUS_QUERY);
+                filter.addAction(MODULE_RUNTIME_STATUS_REPLY);
+            }
             appContext.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED);
             miuiOverviewReceiverContext = appContext;
             miuiOverviewReceiver = receiver;
-            ensureContextualSearchStatePreferenceListener(appContext);
-            moduleLog(Log.INFO, TAG, "Registered Miui launcher overview-state receiver"
+            if (!isFlymeDevice()) {
+                ensureContextualSearchStatePreferenceListener(appContext);
+            }
+            moduleLog(Log.INFO, TAG, "Registered runtime status receiver"
+                    + (isFlymeDevice() ? " for Flyme Shell" : " with Miui launcher state")
                     + ", currentOverviewVisible=" + miuiOverviewVisible);
         } catch (Throwable throwable) {
             moduleLog(Log.ERROR, TAG, "Failed to register Miui overview-state receiver",
@@ -6994,6 +7013,11 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             moduleLog(Log.WARN, TAG, "Rejected runtime status query without nonce");
             return;
         }
+        if (isFlymeDevice()) {
+            sendModuleRuntimeStatusReply(context, nonce, true, true,
+                    "flymeShellResponse", null);
+            return;
+        }
         pendingModuleStatusNonce.set(nonce);
         boolean ready = systemUiInputArbiterMonitorCount.get() > 0;
         sendModuleRuntimeStatusReply(context, nonce, false, ready,
@@ -7059,6 +7083,8 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         }
         try {
             boolean legacyMode = Build.VERSION.SDK_INT < ANDROID_17_API_LEVEL;
+            boolean flymeMode = isFlymeDevice();
+            boolean flymeReady = flymeMode && flymeShellBackAnimationHooksReady;
             boolean legacyReady = nativeReply != null && nativeReply.getBooleanExtra(
                     EXTRA_STATUS_LEGACY_READY, false);
             boolean profileResolved = nativeReply != null && nativeReply.getBooleanExtra(
@@ -7082,7 +7108,8 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             boolean profileRejected = (profileStage >= 101 && profileStage <= 105)
                     || (dartResolverStage >= 101 && dartResolverStage <= 105);
             boolean statusReady = nativeResponse && systemUiReady
-                    && (legacyMode ? legacyReady
+                    && (flymeMode ? flymeReady
+                    : legacyMode ? legacyReady
                     : !profileRejected && nativeReady && profileResolved
                     && businessState == 3 && bridgeState == 3
                     && drawerStateReady && overviewStateReady
@@ -7092,6 +7119,8 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                     .putExtra(EXTRA_STATUS_NONCE, nonce)
                     .putExtra(EXTRA_STATUS_NATIVE_RESPONSE, nativeResponse)
                     .putExtra(EXTRA_STATUS_LEGACY_MODE, legacyMode)
+                    .putExtra(EXTRA_STATUS_FLYME_MODE, flymeMode)
+                    .putExtra(EXTRA_STATUS_FLYME_READY, flymeReady)
                     .putExtra(EXTRA_STATUS_SYSTEMUI_READY, systemUiReady)
                     .putExtra(EXTRA_STATUS_SYSTEMUI_GENERATION,
                             systemUiInputArbiterGeneration)
@@ -7146,6 +7175,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             context.getApplicationContext().sendBroadcast(reply, null, options);
             moduleLog(Log.INFO, TAG, "Published module runtime status reply"
                     + ", nonce=" + nonce + ", nativeResponse=" + nativeResponse
+                    + ", flymeMode=" + flymeMode + ", flymeReady=" + flymeReady
                     + ", systemUiReady=" + systemUiReady
                     + ", statusReady=" + statusReady
                     + ", profileResolved=" + profileResolved

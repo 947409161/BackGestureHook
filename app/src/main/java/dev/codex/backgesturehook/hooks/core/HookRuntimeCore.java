@@ -322,6 +322,10 @@ public abstract class HookRuntimeCore extends XposedModule {
             NativeHookStatusProtocol.EXTRA_LEGACY_MODE;
     protected static final String EXTRA_STATUS_LEGACY_READY =
             NativeHookStatusProtocol.EXTRA_LEGACY_READY;
+    protected static final String EXTRA_STATUS_FLYME_MODE =
+            NativeHookStatusProtocol.EXTRA_FLYME_MODE;
+    protected static final String EXTRA_STATUS_FLYME_READY =
+            NativeHookStatusProtocol.EXTRA_FLYME_READY;
     protected static final String EXTRA_STATUS_NATIVE_READY =
             NativeHookStatusProtocol.EXTRA_NATIVE_READY;
     protected static final String EXTRA_STATUS_NATIVE_PROFILE_RESOLVED =

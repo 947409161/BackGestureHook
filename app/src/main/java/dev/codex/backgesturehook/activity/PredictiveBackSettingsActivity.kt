@@ -105,7 +105,10 @@ class PredictiveBackSettingsActivity :
     private var xposedService: XposedService? by mutableStateOf(null)
     private var serviceStateObserved by mutableStateOf(false)
     private var nativeHookStatus by mutableStateOf(
-        NativeHookStatusUiState.checking(Build.VERSION.SDK_INT < ANDROID_17_API_LEVEL),
+        NativeHookStatusUiState.checking(
+            legacyMode = Build.VERSION.SDK_INT < ANDROID_17_API_LEVEL,
+            flymeMode = isFlymeDevice(),
+        ),
     )
     private val statusHandler = Handler(Looper.getMainLooper())
     private var statusNonce = 0L
@@ -251,7 +254,8 @@ class PredictiveBackSettingsActivity :
         systemUiResponseReceived = false
         systemUiReadyReported = false
         nativeHookStatus = NativeHookStatusUiState.checking(
-            Build.VERSION.SDK_INT < ANDROID_17_API_LEVEL,
+            legacyMode = Build.VERSION.SDK_INT < ANDROID_17_API_LEVEL,
+            flymeMode = isFlymeDevice(),
         )
         statusHandler.removeCallbacks(statusTimeout)
         statusHandler.postDelayed(statusTimeout, STATUS_TIMEOUT_MS)
@@ -270,6 +274,10 @@ class PredictiveBackSettingsActivity :
             nativeHookStatus = NativeHookStatusUiState.noResponse()
         }
     }
+
+    private fun isFlymeDevice(): Boolean =
+        Build.MANUFACTURER.contains("meizu", ignoreCase = true)
+            || Build.BRAND.contains("meizu", ignoreCase = true)
 
     private fun isUidOwner(uid: Int, packageName: String): Boolean {
         return try {
@@ -297,9 +305,12 @@ private fun NativeHookRuntimeStatusCard(
         || state.kind == NativeHookStatusKind.SystemUiNotReady
         || state.kind == NativeHookStatusKind.NativeNotReady
         || state.kind == NativeHookStatusKind.LegacyNotReady
+        || state.kind == NativeHookStatusKind.FlymeNotReady
     val title = when (state.kind) {
         NativeHookStatusKind.Checking -> stringResource(
-            if (state.legacyMode) {
+            if (state.flymeMode) {
+                R.string.native_hook_status_flyme_checking_title
+            } else if (state.legacyMode) {
                 R.string.native_hook_status_legacy_checking_title
             } else {
                 R.string.native_hook_status_checking_title
@@ -313,7 +324,9 @@ private fun NativeHookRuntimeStatusCard(
             },
         )
         NativeHookStatusKind.Ready -> stringResource(
-            if (state.legacyMode) {
+            if (state.flymeMode) {
+                R.string.native_hook_status_ready_flyme_title
+            } else if (state.legacyMode) {
                 R.string.native_hook_status_ready_legacy_title
             } else {
                 R.string.native_hook_status_ready_title
@@ -325,6 +338,8 @@ private fun NativeHookRuntimeStatusCard(
             stringResource(R.string.native_hook_status_native_not_ready_title)
         NativeHookStatusKind.LegacyNotReady ->
             stringResource(R.string.native_hook_status_legacy_not_ready_title)
+        NativeHookStatusKind.FlymeNotReady ->
+            stringResource(R.string.native_hook_status_flyme_not_ready_title)
         NativeHookStatusKind.NativeNoResponse ->
             stringResource(
                 if (state.legacyMode) {
@@ -341,7 +356,9 @@ private fun NativeHookRuntimeStatusCard(
     }
     val summary = when (state.kind) {
         NativeHookStatusKind.Checking -> stringResource(
-            if (state.legacyMode) {
+            if (state.flymeMode) {
+                R.string.native_hook_status_flyme_checking_summary
+            } else if (state.legacyMode) {
                 R.string.native_hook_status_legacy_checking_summary
             } else {
                 R.string.native_hook_status_checking_summary
@@ -356,7 +373,9 @@ private fun NativeHookRuntimeStatusCard(
                 },
             )
         NativeHookStatusKind.Ready -> stringResource(
-            if (state.legacyMode) {
+            if (state.flymeMode) {
+                R.string.native_hook_status_ready_flyme_summary
+            } else if (state.legacyMode) {
                 R.string.native_hook_status_ready_legacy_summary
             } else if (state.profileDynamic) {
                 R.string.native_hook_status_ready_runtime_summary
@@ -370,6 +389,8 @@ private fun NativeHookRuntimeStatusCard(
             stringResource(R.string.native_hook_status_native_not_ready_summary)
         NativeHookStatusKind.LegacyNotReady ->
             stringResource(R.string.native_hook_status_legacy_not_ready_summary)
+        NativeHookStatusKind.FlymeNotReady ->
+            stringResource(R.string.native_hook_status_flyme_not_ready_summary)
         NativeHookStatusKind.NativeNoResponse ->
             stringResource(
                 if (state.legacyMode) {
@@ -386,6 +407,7 @@ private fun NativeHookRuntimeStatusCard(
     }
     val mode: String? = if (state.kind == NativeHookStatusKind.Ready) {
         when {
+            state.flymeMode -> stringResource(R.string.native_hook_status_mode_flyme_shell)
             state.legacyMode -> "LSPOSED"
             state.profileDynamic -> stringResource(R.string.native_hook_status_mode_runtime_profile)
             else -> stringResource(R.string.native_hook_status_mode_builtin_profile)

@@ -19,6 +19,8 @@ public final class NativeHookStatusProtocol {
     public static final String EXTRA_NATIVE_RESPONSE = "status_native_response";
     public static final String EXTRA_LEGACY_MODE = "status_legacy_mode";
     public static final String EXTRA_LEGACY_READY = "status_legacy_ready";
+    public static final String EXTRA_FLYME_MODE = "status_flyme_mode";
+    public static final String EXTRA_FLYME_READY = "status_flyme_ready";
     public static final String EXTRA_NATIVE_READY = "status_native_ready";
     public static final String EXTRA_NATIVE_PROFILE_RESOLVED =
             "status_native_profile_resolved";
