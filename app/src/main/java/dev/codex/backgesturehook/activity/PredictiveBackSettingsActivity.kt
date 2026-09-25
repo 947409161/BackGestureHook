@@ -305,11 +305,11 @@ private fun NativeHookRuntimeStatusCard(
         || state.kind == NativeHookStatusKind.SystemUiNotReady
         || state.kind == NativeHookStatusKind.NativeNotReady
         || state.kind == NativeHookStatusKind.LegacyNotReady
-        || state.kind == NativeHookStatusKind.FlymeNotReady
+        || state.kind == NativeHookStatusKind.PlatformHooksNotReady
     val title = when (state.kind) {
         NativeHookStatusKind.Checking -> stringResource(
             if (state.flymeMode) {
-                R.string.native_hook_status_flyme_checking_title
+                R.string.native_hook_status_systemui_checking_title
             } else if (state.legacyMode) {
                 R.string.native_hook_status_legacy_checking_title
             } else {
@@ -325,7 +325,7 @@ private fun NativeHookRuntimeStatusCard(
         )
         NativeHookStatusKind.Ready -> stringResource(
             if (state.flymeMode) {
-                R.string.native_hook_status_ready_flyme_title
+                R.string.native_hook_status_ready_systemui_title
             } else if (state.legacyMode) {
                 R.string.native_hook_status_ready_legacy_title
             } else {
@@ -338,8 +338,8 @@ private fun NativeHookRuntimeStatusCard(
             stringResource(R.string.native_hook_status_native_not_ready_title)
         NativeHookStatusKind.LegacyNotReady ->
             stringResource(R.string.native_hook_status_legacy_not_ready_title)
-        NativeHookStatusKind.FlymeNotReady ->
-            stringResource(R.string.native_hook_status_flyme_not_ready_title)
+        NativeHookStatusKind.PlatformHooksNotReady ->
+            stringResource(R.string.native_hook_status_systemui_hooks_not_ready_title)
         NativeHookStatusKind.NativeNoResponse ->
             stringResource(
                 if (state.legacyMode) {
@@ -357,7 +357,7 @@ private fun NativeHookRuntimeStatusCard(
     val summary = when (state.kind) {
         NativeHookStatusKind.Checking -> stringResource(
             if (state.flymeMode) {
-                R.string.native_hook_status_flyme_checking_summary
+                R.string.native_hook_status_systemui_checking_summary
             } else if (state.legacyMode) {
                 R.string.native_hook_status_legacy_checking_summary
             } else {
@@ -374,7 +374,7 @@ private fun NativeHookRuntimeStatusCard(
             )
         NativeHookStatusKind.Ready -> stringResource(
             if (state.flymeMode) {
-                R.string.native_hook_status_ready_flyme_summary
+                R.string.native_hook_status_ready_systemui_summary
             } else if (state.legacyMode) {
                 R.string.native_hook_status_ready_legacy_summary
             } else if (state.profileDynamic) {
@@ -389,8 +389,8 @@ private fun NativeHookRuntimeStatusCard(
             stringResource(R.string.native_hook_status_native_not_ready_summary)
         NativeHookStatusKind.LegacyNotReady ->
             stringResource(R.string.native_hook_status_legacy_not_ready_summary)
-        NativeHookStatusKind.FlymeNotReady ->
-            stringResource(R.string.native_hook_status_flyme_not_ready_summary)
+        NativeHookStatusKind.PlatformHooksNotReady ->
+            stringResource(R.string.native_hook_status_systemui_hooks_not_ready_summary)
         NativeHookStatusKind.NativeNoResponse ->
             stringResource(
                 if (state.legacyMode) {
@@ -407,7 +407,7 @@ private fun NativeHookRuntimeStatusCard(
     }
     val mode: String? = if (state.kind == NativeHookStatusKind.Ready) {
         when {
-            state.flymeMode -> stringResource(R.string.native_hook_status_mode_flyme_shell)
+            state.flymeMode -> null
             state.legacyMode -> "LSPOSED"
             state.profileDynamic -> stringResource(R.string.native_hook_status_mode_runtime_profile)
             else -> stringResource(R.string.native_hook_status_mode_builtin_profile)

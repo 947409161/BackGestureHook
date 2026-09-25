@@ -12,7 +12,7 @@ enum class NativeHookStatusKind {
     LegacyNotReady,
     NativeNoResponse,
     ProfileRejected,
-    FlymeNotReady,
+    PlatformHooksNotReady,
     NoResponse,
     LsPosedUnavailable,
 }
@@ -36,7 +36,7 @@ internal fun classifyNativeHookStatus(
 ): NativeHookStatusKind = when {
     flymeMode && !nativeResponse -> NativeHookStatusKind.NoResponse
     flymeMode && flymeReady && systemUiReady -> NativeHookStatusKind.Ready
-    flymeMode -> NativeHookStatusKind.FlymeNotReady
+    flymeMode -> NativeHookStatusKind.PlatformHooksNotReady
     !nativeResponse && systemUiReady -> NativeHookStatusKind.WaitingForNative
     !systemUiReady -> NativeHookStatusKind.SystemUiNotReady
     !nativeResponse -> NativeHookStatusKind.WaitingForNative
