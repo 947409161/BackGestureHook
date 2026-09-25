@@ -1299,6 +1299,7 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
 
     protected void restoreFlymeSystemUiHotReloadHooks(ClassLoader classLoader,
                                                       Set<String> oldHookIds) {
+        flymeShellBackAnimationHooksReady = false;
         Class<?> controllerClass = null;
         if (!oldHookIds.contains("shell_back_onBackAnimationFinished")
                 || !oldHookIds.contains("shell_back_finishBackAnimation")
@@ -1358,6 +1359,10 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
         if (missingStart || missingAtm) {
             hookFlymeBackAnimationAdapter(classLoader, missingStart, missingAtm);
         }
+        flymeShellBackAnimationHooksReady = hasFlymeShellBackAnimationHooks();
+        ensureFlymeRuntimeStatusReceiver(classLoader, "hotReload");
+        moduleLog(Log.INFO, TAG, "Restored Flyme SystemUI status lifecycle"
+                + ", hooksReady=" + flymeShellBackAnimationHooksReady);
     }
 
     @Override

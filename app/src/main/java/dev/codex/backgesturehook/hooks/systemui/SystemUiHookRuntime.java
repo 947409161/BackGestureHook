@@ -69,7 +69,7 @@ import org.luckypray.dexkit.result.MethodData;
 public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
 
     private volatile SystemUiPlatformImpl systemUiPlatformImpl;
-    private volatile boolean flymeShellBackAnimationHooksReady;
+    protected volatile boolean flymeShellBackAnimationHooksReady;
     private final ThreadLocal<Object> flymeBackAnimationAdapterOverride = new ThreadLocal<>();
     private volatile SharedPreferences contextualSearchStatePreferences;
     private volatile Context contextualSearchStateContext;
@@ -105,14 +105,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         try {
             if (isFlymeDevice()) {
                 hookFlymeShellBackAnimation(classLoader);
-                Context systemUiContext = resolveCurrentApplicationContext(classLoader);
-                if (systemUiContext != null) {
-                    ensureMiuiOverviewStateReceiver(systemUiContext);
-                } else {
-                    moduleLog(Log.WARN, TAG,
-                            "SystemUI application context is not available for Flyme "
-                                    + "runtime status receiver");
-                }
+                ensureFlymeRuntimeStatusReceiver(classLoader, "coldLoad");
                 moduleLog(Log.INFO, TAG,
                         "Installed Flyme predictive-back hooks without replacing EdgeBackView"
                                 + ", build=" + BUILD_MARK
@@ -6396,6 +6389,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
     }
 
     protected void hookFlymeShellBackAnimation(ClassLoader classLoader) {
+        flymeShellBackAnimationHooksReady = false;
         try {
             Class<?> controllerClass =
                     Class.forName(BACK_ANIMATION_CONTROLLER, false, classLoader);
@@ -6406,13 +6400,56 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             hookBackNavigationInfoReceived(controllerClass);
             hookFlymeAnimatorDispatch(controllerClass);
             hookFlymeBackAnimationAdapter(controllerClass, classLoader, true, true);
-            flymeShellBackAnimationHooksReady = true;
+            flymeShellBackAnimationHooksReady = hasFlymeShellBackAnimationHooks();
             moduleLog(Log.INFO, TAG,
-                    "Hooked Flyme Shell predictive-back adapter and animator dispatch");
+                    "Hooked Flyme Shell predictive-back adapter and animator dispatch"
+                            + ", ready=" + flymeShellBackAnimationHooksReady);
         } catch (Throwable throwable) {
             flymeShellBackAnimationHooksReady = false;
             moduleLog(Log.ERROR, TAG, "Failed to hook Flyme Shell back animation", throwable);
         }
+    }
+
+    protected boolean hasFlymeShellBackAnimationHooks() {
+        return hasRecordedHookHandle("shell_back_onBackAnimationFinished")
+                && hasRecordedHookHandle("shell_back_onBackNavigationInfoReceived")
+                && hasRecordedHookHandle("shell_back_flyme_dispatch_to_animator")
+                && hasRecordedHookHandle("shell_back_flyme_start_navigation")
+                && hasRecordedHookHandle("shell_back_flyme_atm_start_navigation");
+    }
+
+    protected boolean hasRecordedHookHandle(String hookId) {
+        for (XposedInterface.HookHandle handle : hookHandles) {
+            try {
+                if (hookId.equals(handle.getId())) {
+                    return true;
+                }
+            } catch (Throwable ignored) {
+                // A hook without a readable lifecycle ID cannot prove readiness.
+            }
+        }
+        return false;
+    }
+
+    protected void ensureFlymeRuntimeStatusReceiver(ClassLoader classLoader, String source) {
+        Context systemUiContext = resolveCurrentApplicationContext(classLoader);
+        if (systemUiContext != null) {
+            ensureMiuiOverviewStateReceiver(systemUiContext);
+            return;
+        }
+        moduleLog(Log.INFO, TAG, "SystemUI application context is not available yet for Flyme"
+                + ", source=" + source + "; retrying once on the main Looper");
+        new Handler(Looper.getMainLooper()).post(() -> {
+            Context initializedContext = resolveCurrentApplicationContext(classLoader);
+            if (initializedContext != null) {
+                ensureMiuiOverviewStateReceiver(initializedContext);
+            } else {
+                moduleLog(Log.ERROR, TAG,
+                        "SystemUI application context is still unavailable for Flyme "
+                                + "runtime status receiver"
+                                + ", source=" + source);
+            }
+        });
     }
 
     protected void hookFlymeAnimatorDispatch(Class<?> controllerClass) throws Exception {
